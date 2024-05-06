@@ -1,0 +1,9 @@
+/home/wanghaoyu/rCore-Tutorial-Code-2024S/os/target/riscv64gc-unknown-none-elf/release/deps/libbuddy_system_allocator-6134b88b0f9e9621.rmeta: /home/wanghaoyu/.cargo/registry/src/mirrors.ustc.edu.cn-61ef6e0cd06fb9b8/buddy_system_allocator-0.6.0/src/lib.rs /home/wanghaoyu/.cargo/registry/src/mirrors.ustc.edu.cn-61ef6e0cd06fb9b8/buddy_system_allocator-0.6.0/src/frame.rs /home/wanghaoyu/.cargo/registry/src/mirrors.ustc.edu.cn-61ef6e0cd06fb9b8/buddy_system_allocator-0.6.0/src/linked_list.rs
+
+/home/wanghaoyu/rCore-Tutorial-Code-2024S/os/target/riscv64gc-unknown-none-elf/release/deps/libbuddy_system_allocator-6134b88b0f9e9621.rlib: /home/wanghaoyu/.cargo/registry/src/mirrors.ustc.edu.cn-61ef6e0cd06fb9b8/buddy_system_allocator-0.6.0/src/lib.rs /home/wanghaoyu/.cargo/registry/src/mirrors.ustc.edu.cn-61ef6e0cd06fb9b8/buddy_system_allocator-0.6.0/src/frame.rs /home/wanghaoyu/.cargo/registry/src/mirrors.ustc.edu.cn-61ef6e0cd06fb9b8/buddy_system_allocator-0.6.0/src/linked_list.rs
+
+/home/wanghaoyu/rCore-Tutorial-Code-2024S/os/target/riscv64gc-unknown-none-elf/release/deps/buddy_system_allocator-6134b88b0f9e9621.d: /home/wanghaoyu/.cargo/registry/src/mirrors.ustc.edu.cn-61ef6e0cd06fb9b8/buddy_system_allocator-0.6.0/src/lib.rs /home/wanghaoyu/.cargo/registry/src/mirrors.ustc.edu.cn-61ef6e0cd06fb9b8/buddy_system_allocator-0.6.0/src/frame.rs /home/wanghaoyu/.cargo/registry/src/mirrors.ustc.edu.cn-61ef6e0cd06fb9b8/buddy_system_allocator-0.6.0/src/linked_list.rs
+
+/home/wanghaoyu/.cargo/registry/src/mirrors.ustc.edu.cn-61ef6e0cd06fb9b8/buddy_system_allocator-0.6.0/src/lib.rs:
+/home/wanghaoyu/.cargo/registry/src/mirrors.ustc.edu.cn-61ef6e0cd06fb9b8/buddy_system_allocator-0.6.0/src/frame.rs:
+/home/wanghaoyu/.cargo/registry/src/mirrors.ustc.edu.cn-61ef6e0cd06fb9b8/buddy_system_allocator-0.6.0/src/linked_list.rs:
