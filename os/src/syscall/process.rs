@@ -1,14 +1,16 @@
 //! Process management syscalls
+//!
 use alloc::sync::Arc;
 
 use crate::{
     config::MAX_SYSCALL_NUM,
-    loader::get_app_data_by_name,
-    mm::{VirtAddr, MapPermission, translated_refmut, translated_str},
+    fs::{open_file, OpenFlags},
+    mm::{translated_refmut, translated_str, MapPermission, VirtAddr},
     task::{
         add_task, current_task, current_user_token, exit_current_and_run_next,
-        suspend_current_and_run_next, TaskStatus, add_maparea, remove_maparea,
-        get_taskinfo, check_maparea, take_current_task, set_current,
+        suspend_current_and_run_next, TaskStatus, get_taskinfo,check_maparea,
+        add_maparea, remove_maparea, take_current_task, set_current,
+
     },
     timer::get_time_us,
 };
@@ -47,27 +49,27 @@ impl TaskInfo {
     }
 }
 
-/// task exits and submit an exit code
+/// Exit the current task
 pub fn sys_exit(exit_code: i32) -> ! {
     trace!("kernel:pid[{}] sys_exit", current_task().unwrap().pid.0);
     exit_current_and_run_next(exit_code);
     panic!("Unreachable in sys_exit!");
 }
 
-/// current task gives up resources for other tasks
+/// Yield the CPU to the scheduler
 pub fn sys_yield() -> isize {
-    trace!("kernel:pid[{}] sys_yield", current_task().unwrap().pid.0);
+    //trace!("kernel: sys_yield");
     suspend_current_and_run_next();
     0
 }
 
-/// get current task pid
+/// Get the pid of current task
 pub fn sys_getpid() -> isize {
     trace!("kernel: sys_getpid pid:{}", current_task().unwrap().pid.0);
     current_task().unwrap().pid.0 as isize
 }
 
-/// fork current task
+/// Fork the current task
 pub fn sys_fork() -> isize {
     trace!("kernel:pid[{}] sys_fork", current_task().unwrap().pid.0);
     let current_task = current_task().unwrap();
@@ -88,9 +90,12 @@ pub fn sys_exec(path: *const u8) -> isize {
     trace!("kernel:pid[{}] sys_exec", current_task().unwrap().pid.0);
     let token = current_user_token();
     let path = translated_str(token, path);
-    if let Some(data) = get_app_data_by_name(path.as_str()) {
+    // 以只读的方式在内核中打开应用文件并获取它对应的 OSInode
+    if let Some(app_inode) = open_file(path.as_str(), OpenFlags::RDONLY) {
+        // 通过 OSInode::read_all 将该文件的数据全部读到一个向量 all_data 中
+        let all_data = app_inode.read_all();
         let task = current_task().unwrap();
-        task.exec(data);
+        task.exec(all_data.as_slice());
         0
     } else {
         -1
@@ -100,7 +105,7 @@ pub fn sys_exec(path: *const u8) -> isize {
 /// If there is not a child process whose pid is same as given, return -1.
 /// Else if there is a child process but it is still running, return -2.
 pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
-    trace!("kernel::pid[{}] sys_waitpid [{}]", current_task().unwrap().pid.0, pid);
+    //trace!("kernel: sys_waitpid");
     let task = current_task().unwrap();
     // find a child process
 
@@ -208,7 +213,6 @@ pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
 }
 
 /// YOUR JOB: Implement munmap.
-#[allow(unreachable_code)]
 pub fn sys_munmap(_start: usize, _len: usize) -> isize {
     trace!(
         "kernel:pid[{}] sys_munmap NOT IMPLEMENTED",
@@ -243,9 +247,12 @@ pub fn sys_spawn(_path: *const u8) -> isize {
     );
     let token = current_user_token();
     let _path = translated_str(token, _path);
-    if let Some(data) = get_app_data_by_name(_path.as_str()) {
+    // 以只读的方式在内核中打开应用文件并获取它对应的 OSInode
+    if let Some(app_inode) = open_file(_path.as_str(), OpenFlags::RDONLY) {
+        // 通过 OSInode::read_all 将该文件的数据全部读到一个向量 all_data 中
+        let all_data = app_inode.read_all();
         let current_task = current_task().unwrap();
-        let new_task = current_task.spawn(data);
+        let new_task = current_task.spawn(all_data.as_slice());
         let new_pid = new_task.pid.0;
         let trap_cx = new_task.inner_exclusive_access().get_trap_cx();
         trap_cx.x[10] = 0;

@@ -3,7 +3,7 @@ use super::{frame_alloc, FrameTracker};
 use super::{PTEFlags, PageTable, PageTableEntry};
 use super::{PhysAddr, PhysPageNum, VirtAddr, VirtPageNum};
 use super::{StepByOne, VPNRange};
-use crate::config::{MEMORY_END, PAGE_SIZE, TRAMPOLINE, TRAP_CONTEXT_BASE, USER_STACK_SIZE};
+use crate::config::{MEMORY_END, MMIO, PAGE_SIZE, TRAMPOLINE, TRAP_CONTEXT_BASE, USER_STACK_SIZE};
 use crate::sync::UPSafeCell;
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
@@ -30,6 +30,12 @@ lazy_static! {
     pub static ref KERNEL_SPACE: Arc<UPSafeCell<MemorySet>> =
         Arc::new(unsafe { UPSafeCell::new(MemorySet::new_kernel()) });
 }
+
+/// the kernel token
+pub fn kernel_token() -> usize {
+    KERNEL_SPACE.exclusive_access().token()
+}
+
 /// address space
 pub struct MemorySet {
     page_table: PageTable,
@@ -60,6 +66,23 @@ impl MemorySet {
             None,
         );
     }
+
+    /// 在内存集中清空映射区域
+    pub fn remove_framed_area(&mut self, start_va: VirtAddr, end_va: VirtAddr) -> isize {
+        // 遍历所有映射区域
+        let mut index = 0;
+        while index < self.areas.len() {
+            let area = &mut self.areas[index];
+            if area.vpn_range.get_start() == start_va.floor() && area.vpn_range.get_end() == end_va.ceil() {
+                area.unmap(&mut self.page_table); // 解除映射
+                self.areas.remove(index); // 移除映射区域
+                return 0;
+            }
+            index += 1;
+        }
+        return -1;
+    }
+
     /// remove a area
     pub fn remove_area_with_start_vpn(&mut self, start_vpn: VirtPageNum) {
         if let Some((idx, area)) = self
@@ -82,23 +105,6 @@ impl MemorySet {
         }
         self.areas.push(map_area);
     }
-    
-    /// 在内存集中清空映射区域
-    pub fn remove_framed_area(&mut self, start_va: VirtAddr, end_va: VirtAddr) -> isize {
-        // 遍历所有映射区域
-        let mut index = 0;
-        while index < self.areas.len() {
-            let area = &mut self.areas[index];
-            if area.vpn_range.get_start() == start_va.floor() && area.vpn_range.get_end() == end_va.ceil() {
-                area.unmap(&mut self.page_table); // 解除映射
-                self.areas.remove(index); // 移除映射区域
-                return 0;
-            }
-            index += 1;
-        }
-        return -1;
-    }
-
     /// Mention that trampoline is not collected by areas.
     fn map_trampoline(&mut self) {
         self.page_table.map(
@@ -170,6 +176,19 @@ impl MemorySet {
             ),
             None,
         );
+        // 进行的是透明的恒等映射，让内核可以兼容于直接访问物理地址的设备驱动库
+        info!("mapping memory-mapped registers");
+        for pair in MMIO {
+            memory_set.push(
+                MapArea::new(
+                    (*pair).0.into(),
+                    ((*pair).0 + (*pair).1).into(),
+                    MapType::Identical,
+                    MapPermission::R | MapPermission::W,
+                ),
+                None,
+            );
+        }
         memory_set
     }
     /// Include sections in elf and trampoline and TrapContext and user stack,
@@ -251,19 +270,15 @@ impl MemorySet {
         )
     }
     /// Create a new address space by copy code&data from a exited process's address space.
-    /// 复制一个完全相同的地址空间
     pub fn from_existed_user(user_space: &Self) -> Self {
-        // 创建一个空的地址空间
         let mut memory_set = Self::new_bare();
         // map trampoline
         memory_set.map_trampoline();
         // copy data sections/trap_context/user_stack
         for area in user_space.areas.iter() {
-            // 逻辑段复制
             let new_area = MapArea::from_another(area);
             memory_set.push(new_area, None);
             // copy data from another space
-            // 数据复制
             for vpn in area.vpn_range {
                 let src_ppn = user_space.translate(vpn).unwrap().ppn();
                 let dst_ppn = memory_set.translate(vpn).unwrap().ppn();
@@ -356,8 +371,6 @@ impl MapArea {
             map_perm,
         }
     }
-    /// 可以从一个逻辑段复制得到一个虚拟地址区间、映射方式和权限控制均相同的逻辑段
-    /// 由于它还没有真正被映射到物理页帧上，所以 data_frames 字段为空
     pub fn from_another(another: &Self) -> Self {
         Self {
             vpn_range: VPNRange::new(another.vpn_range.get_start(), another.vpn_range.get_end()),
@@ -366,7 +379,6 @@ impl MapArea {
             map_perm: another.map_perm,
         }
     }
-
     pub fn map_one(&mut self, page_table: &mut PageTable, vpn: VirtPageNum) {
         let ppn: PhysPageNum;
         match self.map_type {
@@ -382,7 +394,6 @@ impl MapArea {
         let pte_flags = PTEFlags::from_bits(self.map_perm.bits).unwrap();
         page_table.map(vpn, ppn, pte_flags);
     }
-
     pub fn unmap_one(&mut self, page_table: &mut PageTable, vpn: VirtPageNum) {
         if self.map_type == MapType::Framed {
             self.data_frames.remove(&vpn);

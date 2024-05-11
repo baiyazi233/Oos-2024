@@ -2,10 +2,12 @@
 use super::TaskContext;
 use super::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
 use crate::config::TRAP_CONTEXT_BASE;
+use crate::fs::{File, Stdin, Stdout};
 use crate::mm::{MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE, MapPermission};
 use crate::sync::UPSafeCell;
 use crate::trap::{trap_handler, TrapContext};
 use alloc::sync::{Arc, Weak};
+use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::RefMut;
 use crate::syscall::TaskInfo;
@@ -20,7 +22,7 @@ pub struct TaskControlBlock {
     /// Kernel stack corresponding to PID
     pub kernel_stack: KernelStack,
 
-    /// Mutable,UPSafeCell<T> 所提供的内部可变性
+    /// Mutable
     inner: UPSafeCell<TaskControlBlockInner>,
 }
 
@@ -38,12 +40,10 @@ impl TaskControlBlock {
 
 pub struct TaskControlBlockInner {
     /// The physical page number of the frame where the trap context is placed
-    /// 应用地址空间中的 Trap 上下文被放在的物理页帧的物理页号
     pub trap_cx_ppn: PhysPageNum,
 
     /// Application data can only appear in areas
     /// where the application address space is lower than base_size
-    /// 应用数据仅有可能出现在应用地址空间低于 base_size 字节的区域中
     pub base_size: usize,
 
     /// Save task context
@@ -57,15 +57,20 @@ pub struct TaskControlBlockInner {
 
     /// Parent process of the current process.
     /// Weak will not affect the reference count of the parent
-    /// 当前进程的父进程（如果存在的话）。注意我们使用 Weak 而非 Arc 来包裹另一个任务控制块，因此这个智能指针将不会影响父进程的引用计数
     pub parent: Option<Weak<TaskControlBlock>>,
 
     /// A vector containing TCBs of all child processes of the current process
-    /// 当前进程的所有子进程的任务控制块以 Arc 智能指针的形式保存在一个向量中，这样才能够更方便的找到它们
     pub children: Vec<Arc<TaskControlBlock>>,
 
     /// It is set when active exit or execution error occurs
     pub exit_code: i32,
+
+    /// 文件描述符表 ，记录所有它请求内核打开并可以读写的那些文件集合
+    /// Vec 的动态长度特性使得我们无需设置一个固定的文件描述符数量上限
+    /// Option 使得我们可以区分一个文件描述符当前是否空闲，当它是 None 的时候是空闲的，而 Some 则代表它已被占用
+    /// Arc 首先提供了共享引用能力，此外被它包裹的内容会被放到内核堆而不是栈上，于是它便不需要在编译期有着确定的大小
+    /// dyn 关键字表明 Arc 里面的类型实现了 File/Send/Sync 三个 Trait，需要等到运行时才能知道它的具体类型
+    pub fd_table: Vec<Option<Arc<dyn File + Send + Sync>>>,
 
     /// Heap bottom
     pub heap_bottom: usize,
@@ -84,11 +89,9 @@ pub struct TaskControlBlockInner {
 }
 
 impl TaskControlBlockInner {
-    /// get the trap context
     pub fn get_trap_cx(&self) -> &'static mut TrapContext {
         self.trap_cx_ppn.get_mut()
     }
-    /// get the user token
     pub fn get_user_token(&self) -> usize {
         self.memory_set.token()
     }
@@ -98,8 +101,17 @@ impl TaskControlBlockInner {
     pub fn is_zombie(&self) -> bool {
         self.get_status() == TaskStatus::Zombie
     }
-    /// 添加一个逻辑段到应用地址空间
-    pub fn add_maparea(&mut self, start_va: VirtAddr, end_va: VirtAddr, permission: MapPermission) {
+    pub fn alloc_fd(&mut self) -> usize {
+        if let Some(fd) = (0..self.fd_table.len()).find(|fd| self.fd_table[*fd].is_none()) {
+            fd
+        } else {
+            self.fd_table.push(None);
+            self.fd_table.len() - 1
+        }
+    }
+
+     /// 添加一个逻辑段到应用地址空间
+     pub fn add_maparea(&mut self, start_va: VirtAddr, end_va: VirtAddr, permission: MapPermission) {
         self.memory_set.insert_framed_area(start_va, end_va, permission);
     }
     /// 删除应用地址空间的一个逻辑段
@@ -122,6 +134,7 @@ impl TaskControlBlockInner {
     pub fn get_taskinfo(&self) -> TaskInfo {
         self.task_info.clone()
     }
+
 }
 
 impl TaskControlBlock {
@@ -130,20 +143,16 @@ impl TaskControlBlock {
     /// At present, it is only used for the creation of initproc
     pub fn new(elf_data: &[u8]) -> Self {
         // memory_set with elf program headers/trampoline/trap context/user stack
-        // 解析应用的 ELF 执行文件得到应用地址空间 memory_set ，用户栈在应用地址空间中的位置 user_sp 以及应用的入口点 entry_point 
         let (memory_set, user_sp, entry_point) = MemorySet::from_elf(elf_data);
-        // 手动查页表找到位于应用地址空间中新创建的Trap 上下文被实际放在哪个物理页帧上，用来做后续的初始化
         let trap_cx_ppn = memory_set
             .translate(VirtAddr::from(TRAP_CONTEXT_BASE).into())
             .unwrap()
             .ppn();
         // alloc a pid and a kernel stack in kernel space
-        // 在内核空间中分配一个新的 PID 和一个新的内核栈
         let pid_handle = pid_alloc();
         let kernel_stack = kstack_alloc();
         let kernel_stack_top = kernel_stack.get_top();
         // push a task context which goes to trap_return to the top of kernel stack
-        // 整合之前的部分信息创建进程控制块
         let task_control_block = Self {
             pid: pid_handle,
             kernel_stack,
@@ -157,6 +166,15 @@ impl TaskControlBlock {
                     parent: None,
                     children: Vec::new(),
                     exit_code: 0,
+                    // 为进程打开标准输入文件和标准输出文件
+                    fd_table: vec![
+                        // 0 -> stdin
+                        Some(Arc::new(Stdin)),
+                        // 1 -> stdout
+                        Some(Arc::new(Stdout)),
+                        // 2 -> stderr
+                        Some(Arc::new(Stdout)),
+                    ],
                     heap_bottom: user_sp,
                     program_brk: user_sp,
                     task_info: TaskInfo::new(),
@@ -166,7 +184,6 @@ impl TaskControlBlock {
             },
         };
         // prepare TrapContext in user space
-        // 初始化位于该进程应用地址空间中的 Trap 上下文
         let trap_cx = task_control_block.inner_exclusive_access().get_trap_cx();
         *trap_cx = TrapContext::app_init_context(
             entry_point,
@@ -193,50 +210,55 @@ impl TaskControlBlock {
         inner.memory_set = memory_set;
         // update trap_cx ppn
         inner.trap_cx_ppn = trap_cx_ppn;
-        // initialize base_size
-        inner.base_size = user_sp;
         // initialize trap_cx
-        let trap_cx = inner.get_trap_cx();
-        *trap_cx = TrapContext::app_init_context(
+        let trap_cx = TrapContext::app_init_context(
             entry_point,
             user_sp,
             KERNEL_SPACE.exclusive_access().token(),
             self.kernel_stack.get_top(),
             trap_handler as usize,
         );
-        // **** release inner automatically
+        *inner.get_trap_cx() = trap_cx;
+        // **** release current PCB
     }
 
     /// parent process fork the child process
-    pub fn fork(self: &Arc<Self>) -> Arc<Self> {
-        // ---- access parent PCB exclusively
+    pub fn fork(self: &Arc<TaskControlBlock>) -> Arc<TaskControlBlock> {
+        // ---- hold parent PCB lock
         let mut parent_inner = self.inner_exclusive_access();
         // copy user space(include trap context)
-        // 子进程的地址空间不是通过解析 ELF 文件，而是直接复制父进程的地址空间
         let memory_set = MemorySet::from_existed_user(&parent_inner.memory_set);
         let trap_cx_ppn = memory_set
             .translate(VirtAddr::from(TRAP_CONTEXT_BASE).into())
             .unwrap()
             .ppn();
-        
         // alloc a pid and a kernel stack in kernel space
         let pid_handle = pid_alloc();
         let kernel_stack = kstack_alloc();
         let kernel_stack_top = kernel_stack.get_top();
-        
+        // copy fd table
+        let mut new_fd_table: Vec<Option<Arc<dyn File + Send + Sync>>> = Vec::new();
+        for fd in parent_inner.fd_table.iter() {
+            if let Some(file) = fd {
+                new_fd_table.push(Some(file.clone()));
+            } else {
+                new_fd_table.push(None);
+            }
+        }
         let task_control_block = Arc::new(TaskControlBlock {
             pid: pid_handle,
             kernel_stack,
             inner: unsafe {
                 UPSafeCell::new(TaskControlBlockInner {
                     trap_cx_ppn,
-                    base_size: parent_inner.base_size,  //应用数据的大小保持一致
+                    base_size: parent_inner.base_size,
                     task_cx: TaskContext::goto_trap_return(kernel_stack_top),
                     task_status: TaskStatus::Ready,
                     memory_set,
-                    parent: Some(Arc::downgrade(self)),  //将父进程的弱引用计数放到子进程的进程控制块中
+                    parent: Some(Arc::downgrade(self)),
                     children: Vec::new(),
                     exit_code: 0,
+                    fd_table: new_fd_table,
                     heap_bottom: parent_inner.heap_bottom,
                     program_brk: parent_inner.program_brk,
                     task_info: TaskInfo::new(),
@@ -245,65 +267,7 @@ impl TaskControlBlock {
                 })
             },
         });
-
         // add child
-        // 将子进程插入到父进程的孩子向量
-        parent_inner.children.push(task_control_block.clone());
-        // modify kernel_sp in trap_cx
-        // **** access child PCB exclusively
-        let trap_cx = task_control_block.inner_exclusive_access().get_trap_cx();
-        trap_cx.kernel_sp = kernel_stack_top;
-        // return
-        task_control_block
-        // **** release child PCB
-        // ---- release parent PCB
-    }
-
-    /// spawn
-    pub fn spawn(self: &Arc<Self>, elf_data: &[u8]) -> Arc<Self> {
-        // ---- access parent PCB exclusively
-        let mut parent_inner = self.inner_exclusive_access();
-        // copy user space(include trap context)
-        let (memory_set, user_sp, entry_point) = MemorySet::from_elf(elf_data);
-        let trap_cx_ppn = memory_set
-            .translate(VirtAddr::from(TRAP_CONTEXT_BASE).into())
-            .unwrap()
-            .ppn();
-        // alloc a pid and a kernel stack in kernel space
-        let pid_handle = pid_alloc();
-        let kernel_stack = kstack_alloc();
-        let kernel_stack_top = kernel_stack.get_top();
-        let task_control_block = Arc::new(TaskControlBlock {
-            pid: pid_handle,
-            kernel_stack,
-            inner: unsafe {
-                UPSafeCell::new(TaskControlBlockInner {
-                    trap_cx_ppn,
-                    base_size: user_sp,  
-                    task_cx: TaskContext::goto_trap_return(kernel_stack_top),
-                    task_status: TaskStatus::Ready,
-                    memory_set,
-                    parent: Some(Arc::downgrade(self)),  //将父进程的弱引用计数放到子进程的进程控制块中
-                    children: Vec::new(),
-                    exit_code: 0,
-                    heap_bottom: parent_inner.heap_bottom,
-                    program_brk: parent_inner.program_brk,
-                    task_info: TaskInfo::new(),
-                    cur_stride: 0,
-                    pro_lev: 16,
-                })
-            },
-        });
-        let trap_cx = task_control_block.inner_exclusive_access().get_trap_cx();
-        *trap_cx = TrapContext::app_init_context(
-            entry_point,
-            user_sp,
-            KERNEL_SPACE.exclusive_access().token(),
-            kernel_stack_top,
-            trap_handler as usize,
-        );
-        // add child
-        // 将子进程插入到父进程的孩子向量
         parent_inner.children.push(task_control_block.clone());
         // modify kernel_sp in trap_cx
         // **** access child PCB exclusively
@@ -345,6 +309,73 @@ impl TaskControlBlock {
             None
         }
     }
+
+    /// spawn
+    pub fn spawn(self: &Arc<Self>, elf_data: &[u8]) -> Arc<Self> {
+        // ---- access parent PCB exclusively
+        let mut parent_inner = self.inner_exclusive_access();
+        // copy user space(include trap context)
+        let (memory_set, user_sp, entry_point) = MemorySet::from_elf(elf_data);
+        let trap_cx_ppn = memory_set
+            .translate(VirtAddr::from(TRAP_CONTEXT_BASE).into())
+            .unwrap()
+            .ppn();
+        // alloc a pid and a kernel stack in kernel space
+        let pid_handle = pid_alloc();
+        let kernel_stack = kstack_alloc();
+        let kernel_stack_top = kernel_stack.get_top();
+        // copy fd table
+        let mut new_fd_table: Vec<Option<Arc<dyn File + Send + Sync>>> = Vec::new();
+        for fd in parent_inner.fd_table.iter() {
+            if let Some(file) = fd {
+                new_fd_table.push(Some(file.clone()));
+            } else {
+                new_fd_table.push(None);
+            }
+        }
+        let task_control_block = Arc::new(TaskControlBlock {
+            pid: pid_handle,
+            kernel_stack,
+            inner: unsafe {
+                UPSafeCell::new(TaskControlBlockInner {
+                    trap_cx_ppn,
+                    base_size: user_sp,  
+                    task_cx: TaskContext::goto_trap_return(kernel_stack_top),
+                    task_status: TaskStatus::Ready,
+                    memory_set,
+                    parent: Some(Arc::downgrade(self)),  //将父进程的弱引用计数放到子进程的进程控制块中
+                    children: Vec::new(),
+                    exit_code: 0,
+                    fd_table: new_fd_table,
+                    heap_bottom: parent_inner.heap_bottom,
+                    program_brk: parent_inner.program_brk,
+                    task_info: TaskInfo::new(),
+                    cur_stride: 0,
+                    pro_lev: 16,
+                })
+            },
+        });
+        let trap_cx = task_control_block.inner_exclusive_access().get_trap_cx();
+        *trap_cx = TrapContext::app_init_context(
+            entry_point,
+            user_sp,
+            KERNEL_SPACE.exclusive_access().token(),
+            kernel_stack_top,
+            trap_handler as usize,
+        );
+        // add child
+        // 将子进程插入到父进程的孩子向量
+        parent_inner.children.push(task_control_block.clone());
+        // modify kernel_sp in trap_cx
+        // **** access child PCB exclusively
+        let trap_cx = task_control_block.inner_exclusive_access().get_trap_cx();
+        trap_cx.kernel_sp = kernel_stack_top;
+        // return
+        task_control_block
+        // **** release child PCB
+        // ---- release parent PCB
+    }
+
 }
 
 #[derive(Copy, Clone, PartialEq)]
