@@ -1,5 +1,6 @@
 use crate::fs::DiskInodeType;
 use alloc::sync::Arc;
+use alloc::vec::Vec;
 
 use crate::{
     fs::{directory_tree::DirectoryTreeNode, file_trait::File, layout::Stat, StatMode},
@@ -28,6 +29,10 @@ impl File for Zero {
 
     fn read(&self, offset: Option<&mut usize>, buf: &mut [u8]) -> usize {
         unreachable!()
+    }
+
+    fn read_all(&self) -> Vec<u8>{
+        Vec::new()
     }
 
     fn write(&self, offset: Option<&mut usize>, buf: &[u8]) -> usize {

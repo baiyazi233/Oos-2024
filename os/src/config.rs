@@ -26,3 +26,5 @@ pub const MEMORY_END: usize = 0x88000000;
 /// The base address of control registers in Virtio_Block device
 /// MMIO 地址区间（起始地址，长度）
 pub const MMIO: &[(usize, usize)] = &[(0x10001000, 0x1000)];
+
+pub const SYSTEM_FD_LIMIT: usize = 256;

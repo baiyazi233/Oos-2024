@@ -10,7 +10,6 @@ use alloc::sync::{Arc, Weak};
 use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::RefMut;
-use crate::syscall::TaskInfo;
 /// Task control block structure
 ///
 /// Directly save the contents that will not change during running
@@ -78,9 +77,6 @@ pub struct TaskControlBlockInner {
     /// Program break
     pub program_brk: usize,
 
-    /// record task status
-    pub task_info: TaskInfo,
-
     /// 当前 stride
     pub cur_stride: usize,
 
@@ -124,16 +120,16 @@ impl TaskControlBlockInner {
         self.memory_set.check_conflict(start_va, end_va)
     }
 
-    /// update taskinfo
-    pub fn update_taskinfo(&mut self, id: usize) -> isize {
-        self.task_info.syscall_times[id] += 1;
-        0
-    }
+    // update taskinfo
+    // pub fn update_taskinfo(&mut self, id: usize) -> isize {
+    //     self.task_info.syscall_times[id] += 1;
+    //     0
+    // }
 
-    /// get taskinfo
-    pub fn get_taskinfo(&self) -> TaskInfo {
-        self.task_info.clone()
-    }
+    // /// get taskinfo
+    // pub fn get_taskinfo(&self) -> TaskInfo {
+    //     self.task_info.clone()
+    // }
 
 }
 
@@ -177,7 +173,6 @@ impl TaskControlBlock {
                     ],
                     heap_bottom: user_sp,
                     program_brk: user_sp,
-                    task_info: TaskInfo::new(),
                     cur_stride: 0,
                     pro_lev: 16,
                 })
@@ -261,7 +256,6 @@ impl TaskControlBlock {
                     fd_table: new_fd_table,
                     heap_bottom: parent_inner.heap_bottom,
                     program_brk: parent_inner.program_brk,
-                    task_info: TaskInfo::new(),
                     cur_stride: 0,
                     pro_lev: 16,
                 })
@@ -349,7 +343,6 @@ impl TaskControlBlock {
                     fd_table: new_fd_table,
                     heap_bottom: parent_inner.heap_bottom,
                     program_brk: parent_inner.program_brk,
-                    task_info: TaskInfo::new(),
                     cur_stride: 0,
                     pro_lev: 16,
                 })

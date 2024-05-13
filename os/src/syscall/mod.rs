@@ -22,14 +22,13 @@ mod syslog;
 mod system;
 mod thread;
 
-use config::*;
+// use config::*;
 use fs::*;
-use ppoll::*;
-use process::*;
-use signal::*;
-use sync::*;
-use system::*;
-use thread::*;
+// use process::*;
+// use signal::*;
+// use sync::*;
+// use system::*;
+// use thread::*;
 
 pub use process::sys_getpid;
 

@@ -21,8 +21,7 @@ mod switch;
 #[allow(clippy::module_inception)]
 #[allow(rustdoc::private_intra_doc_links)]
 mod task;
-pub use crate::syscall::TaskInfo;
-use crate::fs::{open_file, OpenFlags};
+use crate::fs::{OpenFlags, ROOT_FD};
 use alloc::sync::Arc;
 pub use context::TaskContext;
 use lazy_static::*;
@@ -110,8 +109,8 @@ lazy_static! {
     /// the name "initproc" may be changed to any other app name like "usertests",
     /// but we have user_shell, so we don't need to change it.
     pub static ref INITPROC: Arc<TaskControlBlock> = Arc::new({
-        let inode = open_file("ch6b_initproc", OpenFlags::RDONLY).unwrap();
-        let v = inode.read_all();
+        let initproc_fd = ROOT_FD.open("/initproc", OpenFlags::O_RDONLY, true).unwrap();
+        let v = initproc_fd.read_all();
         TaskControlBlock::new(v.as_slice())
     });
 }
@@ -152,24 +151,24 @@ pub fn check_maparea(start_va: VirtAddr, end_va: VirtAddr) -> bool {
 }
 
 /// update taskinfo
-pub fn update_taskinfo(id: usize) -> isize {
-    let task = take_current_task().unwrap();
-    let mut inner = task.inner_exclusive_access();
-    let i = inner.update_taskinfo(id);
-    drop(inner);
-    set_current(task);
-    i
-}
+// pub fn update_taskinfo(id: usize) -> isize {
+//     let task = take_current_task().unwrap();
+//     let mut inner = task.inner_exclusive_access();
+//     let i = inner.update_taskinfo(id);
+//     drop(inner);
+//     set_current(task);
+//     i
+// }
 
 /// get taskinfo
-pub fn get_taskinfo() -> TaskInfo {
-    let task = take_current_task().unwrap();
-    let inner = task.inner_exclusive_access();
-    let i = inner.get_taskinfo();
-    drop(inner);
-    set_current(task);
-    i
-}
+// pub fn get_taskinfo() -> TaskInfo {
+//     let task = take_current_task().unwrap();
+//     let inner = task.inner_exclusive_access();
+//     let i = inner.get_taskinfo();
+//     drop(inner);
+//     set_current(task);
+//     i
+// }
 
 /// 检测新的映射区域是否与已有的映射区域冲突
 pub fn check_mapsetarea(start_va: VirtAddr, end_va: VirtAddr) -> bool {

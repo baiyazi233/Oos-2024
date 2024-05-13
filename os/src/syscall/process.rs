@@ -4,11 +4,11 @@ use alloc::sync::Arc;
 
 use crate::{
     config::MAX_SYSCALL_NUM,
-    fs::{open_file, OpenFlags},
+    fs::OpenFlags,
     mm::{translated_refmut, translated_str, MapPermission, VirtAddr},
     task::{
         add_task, current_task, current_user_token, exit_current_and_run_next,
-        suspend_current_and_run_next, TaskStatus, get_taskinfo,check_maparea,
+        suspend_current_and_run_next, TaskStatus, check_maparea,
         add_maparea, remove_maparea, take_current_task, set_current,
 
     },
@@ -160,20 +160,20 @@ pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
 /// YOUR JOB: Finish sys_task_info to pass testcases
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TaskInfo`] is splitted by two pages ?
-pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_task_info NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    let ti = translated_refmut(current_user_token(), _ti);
-    let task_ref = get_taskinfo();
-    *ti = TaskInfo {
-        status: TaskStatus::Running,
-        syscall_times: task_ref.syscall_times,
-        time: (get_time_us() - task_ref.time) / 1000,
-    };
-    0
-}
+// pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
+//     trace!(
+//         "kernel:pid[{}] sys_task_info NOT IMPLEMENTED",
+//         current_task().unwrap().pid.0
+//     );
+//     let ti = translated_refmut(current_user_token(), _ti);
+//     let task_ref = get_taskinfo();
+//     *ti = TaskInfo {
+//         status: TaskStatus::Running,
+//         syscall_times: task_ref.syscall_times,
+//         time: (get_time_us() - task_ref.time) / 1000,
+//     };
+//     0
+// }
 
 /// YOUR JOB: Implement mmap.
 pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {

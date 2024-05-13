@@ -29,3 +29,14 @@ pub fn get_time_us() -> usize {
 pub fn set_next_trigger() {
     set_timer(get_time() + CLOCK_FREQ / TICKS_PER_SEC);
 }
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// Traditional UNIX timespec structures represent elapsed time, measured by the system clock
+/// # *CAUTION*
+/// tv_sec & tv_usec should be usize.
+pub struct TimeSpec {
+    /// The tv_sec member represents the elapsed time, in whole seconds.
+    pub tv_sec: usize,
+    /// The tv_usec member captures rest of the elapsed time, represented as the number of microseconds.
+    pub tv_nsec: usize,
+}

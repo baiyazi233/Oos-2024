@@ -1,4 +1,5 @@
 use alloc::sync::{Arc, Weak};
+use alloc::vec::Vec;
 
 use crate::{fs::{file_trait::File, DiskInodeType}, syscall::errno::ENOTDIR};
 
@@ -24,6 +25,10 @@ impl File for Socket {
 
     fn read(&self, offset: Option<&mut usize>, buf: &mut [u8]) -> usize {
         todo!()
+    }
+
+    fn read_all(&self) -> Vec<u8>{
+        Vec::new()
     }
 
     fn write(&self, offset: Option<&mut usize>, buf: &[u8]) -> usize {

@@ -4,6 +4,7 @@ use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 use bitflags::*;
+use crate::syscall::errno::EPERM;
 
 bitflags! {
     /// page table entry flags
@@ -61,6 +62,9 @@ impl PageTableEntry {
     /// The page pointered by page table entry is executable?
     pub fn executable(&self) -> bool {
         (self.flags() & PTEFlags::X) != PTEFlags::empty()
+    }
+    pub fn is_dirty(&self) -> bool {
+        (self.flags() & PTEFlags::D) != PTEFlags::empty()
     }
 }
 
@@ -156,6 +160,29 @@ impl PageTable {
     pub fn token(&self) -> usize {
         8usize << 60 | self.root_ppn.0
     }
+
+    pub fn set_pte_flags(&self, vpn: VirtPageNum, flags: PTEFlags) -> bool {
+        if let Some(pte) = self.find_pte(vpn) {
+            if !pte.is_valid() {
+                return false;
+            }
+            pte.bits = pte.ppn().0 << 10 | (flags | PTEFlags::U | PTEFlags::V).bits() as usize;
+            true
+        } else {
+            false
+        }
+    }
+    pub fn delete_pte_flags(&self, vpn: VirtPageNum, flags: PTEFlags) -> bool {
+        if let Some(pte) = self.find_pte(vpn) {
+            if !pte.is_valid() {
+                return false;
+            }
+            pte.bits = pte.bits & !(flags.bits() as usize);
+            true
+        } else {
+            false
+        }
+    }
 }
 
 /// Translate&Copy a ptr[u8] array with LENGTH len to a mutable u8 Vec through page table
@@ -237,6 +264,51 @@ impl UserBuffer {
             total += b.len();
         }
         total
+    }
+    pub fn clear(&mut self) {
+        self.buffers.iter_mut().for_each(|buffer| {
+            buffer.fill(0);
+        })
+    }
+    pub fn write_at(&mut self, offset: usize, buf: &[u8]) -> isize {
+        assert!(!self.buffers.is_empty());
+        if offset + buf.len() > self.len() {
+            // println!("[page_table] function write_at: wrong size, offset = {}, buf.len() = {}, self.len() = {}",offset, buf.len(), self.len());
+            panic!("[page_table] function write_at: wrong size");
+        }
+        let len = (self.len() - offset).min(buf.len());
+
+        let mut offset_user_buffer = 0; // UserBuffer
+        let mut offset_buf = 0; // buf
+        for sub_buff in self.buffers.iter_mut() {
+            let sub_buffer_len = (*sub_buff).len();
+            if offset_user_buffer + sub_buffer_len < offset {
+                // This subbuffer has no intersection with buf that input.
+                // This subbuffer precedes the destination buffer.
+                continue;
+            } else if offset_user_buffer < offset {
+                // Because offset_userBuffer plus sub_buffer_len NOT samller than offset, this subBuffer must intersect with buf that input.
+                for index in (offset - offset_user_buffer)..sub_buffer_len {
+                    (*sub_buff)[index] = buf[offset_buf];
+                    offset_buf += 1;
+                    if offset_buf == len {
+                        return len as isize;
+                    }
+                }
+            } else {
+                // We don't need to tell if the current subbuffer is lagging behind the destination buffer,
+                // because at that time the function has already returned
+                for index in 0..sub_buffer_len {
+                    (*sub_buff)[index] = buf[offset_buf];
+                    offset_buf += 1;
+                    if offset_buf == len {
+                        return len as isize;
+                    }
+                }
+            }
+            offset_user_buffer += sub_buffer_len;
+        }
+        EPERM
     }
 }
 

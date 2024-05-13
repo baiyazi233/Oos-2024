@@ -1,4 +1,5 @@
 use core::mem::size_of;
+use core::slice::from_raw_parts;
 
 use crate::timer::TimeSpec;
 
@@ -178,6 +179,10 @@ impl Stat {
             __unused: 0,
         }
     }
+    pub fn as_bytes(&self) -> &[u8] {
+        let size = core::mem::size_of::<Stat>();
+        unsafe { from_raw_parts(self as *const _ as *const u8, size) }
+    }
 }
 
 const NAME_LIMIT: usize = 128;
@@ -213,5 +218,9 @@ impl Dirent {
         };
         dirent.d_name[0..d_name.len()].copy_from_slice(d_name.as_bytes());
         dirent
+    }
+    pub fn as_bytes(&self) -> &[u8] {
+        let size = core::mem::size_of::<Dirent>();
+        unsafe { from_raw_parts(self as *const _ as *const u8, size) }
     }
 }

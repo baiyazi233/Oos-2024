@@ -105,6 +105,15 @@ impl MemorySet {
         }
         self.areas.push(map_area);
     }
+    pub fn map_app_data(
+        &mut self,
+        start_va: VirtAddr,
+        map_perm: MapPermission,
+        frame_trackers: Vec<Arc<FrameTracker>>,
+    ) {
+        let map_area = MapArea::from_existed(start_va, MapType::Marked, map_perm, frame_trackers);
+        self.push(map_area, None);
+    }
     /// Mention that trampoline is not collected by areas.
     fn map_trampoline(&mut self) {
         self.page_table.map(
@@ -336,7 +345,9 @@ impl MemorySet {
             false
         }
     }
-
+    pub fn clear_dirty_bit(&mut self, vpn: VirtPageNum) {
+        self.page_table.delete_pte_flags(vpn, PTEFlags::D);
+    }
     /// 检测新的映射区域是否与已有的映射区域冲突
     pub fn check_conflict(&self, start: VirtAddr, end: VirtAddr) -> bool {
         // any: 如果任意一个元素满足条件，则返回true
@@ -389,6 +400,9 @@ impl MapArea {
                 let frame = frame_alloc().unwrap();
                 ppn = frame.ppn;
                 self.data_frames.insert(vpn, frame);
+            }
+            _ => {
+                todo!()
             }
         }
         let pte_flags = PTEFlags::from_bits(self.map_perm.bits).unwrap();
@@ -446,6 +460,37 @@ impl MapArea {
             current_vpn.step();
         }
     }
+
+    pub fn from_existed(
+        start_va: VirtAddr,
+        map_type: MapType,
+        map_perm: MapPermission,
+        frame_trackers: Vec<Arc<FrameTracker>>,
+    ) -> Self {
+        let page_count = frame_trackers.len();
+
+        let start_vpn = start_va.floor();
+        let end_vpn = VirtPageNum::from(start_vpn.0 + page_count);
+
+        let vpn_range = VPNRange::new(start_vpn, end_vpn);
+        let mut data_frames: BTreeMap<VirtPageNum, FrameTracker> = BTreeMap::new();
+
+        let mut vpn = start_vpn;
+        for page_id in 0..page_count {
+            // println!(
+            //     "[from_existed] vpn = {:?}, ppn = {:?}",
+            //     vpn, frame_trackers[page_id].ppn
+            // );
+            data_frames.insert(vpn, FrameTracker::cover(frame_trackers[page_id].ppn));
+            vpn.step();
+        }
+        Self {
+            vpn_range,
+            data_frames,
+            map_type,
+            map_perm,
+        }
+    }
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -453,6 +498,7 @@ impl MapArea {
 pub enum MapType {
     Identical,
     Framed,
+    Marked,
 }
 
 bitflags! {

@@ -1,5 +1,5 @@
 //! File and filesystem-related syscalls
-use crate::fs::{open_file, OpenFlags, Stat, OSInode, ROOT_INODE, StatMode};
+use crate::fs::*;
 use crate::mm::{translated_byte_buffer, translated_str, UserBuffer};
 use crate::task::{current_task, current_user_token};
 use core::any::Any;
@@ -19,7 +19,11 @@ pub fn sys_write(fd: usize, buf: *const u8, len: usize) -> isize {
         let file = file.clone();
         // release current task TCB manually to avoid multi-borrow
         drop(inner);
-        file.write(UserBuffer::new(translated_byte_buffer(token, buf, len))) as isize
+        let write_size = file.write_user(
+            None,
+            UserBuffer::new(translated_byte_buffer(token, buf, len)),
+        );
+        write_size as isize
     } else {
         -1
     }
@@ -41,7 +45,10 @@ pub fn sys_read(fd: usize, buf: *const u8, len: usize) -> isize {
         // release current task TCB manually to avoid multi-borrow
         drop(inner);
         trace!("kernel: sys_read .. file.read");
-        file.read(UserBuffer::new(translated_byte_buffer(token, buf, len))) as isize
+        file.read_user(
+            None,
+            UserBuffer::new(translated_byte_buffer(token, buf, len)),
+        ) as isize
     } else {
         -1
     }

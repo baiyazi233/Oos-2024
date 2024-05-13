@@ -1,11 +1,12 @@
 //! virtio_blk device driver
 
 mod virtio_blk;
+mod block_dev;
 
 pub use virtio_blk::VirtIOBlock;
 
 use alloc::sync::Arc;
-use easy_fs::BlockDevice;
+pub use block_dev::{BlockDevice, BLOCK_SZ};
 use lazy_static::*;
 
 type BlockDeviceImpl = virtio_blk::VirtIOBlock;
