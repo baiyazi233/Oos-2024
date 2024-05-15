@@ -88,15 +88,23 @@ pub fn sys_exec(path: *const u8, mut args: *const usize) -> isize {
             args = args.add(1);
         }
     }
-    if let Some(app_inode) = open_file(path.as_str(), OpenFlags::RDONLY) {
-        let all_data = app_inode.read_all();
-        let process = current_process();
-        let argc = args_vec.len();
-        process.exec(all_data.as_slice(), args_vec);
-        // return argc because cx.x[10] will be covered with it later
-        argc as isize
-    } else {
-        -1
+    let process = current_process();
+    let working_inode = process
+        .inner_exclusive_access()
+        .work_path
+        .lock()
+        .working_inode
+        .clone();
+    match working_inode.open(&path, OpenFlags::O_RDONLY, false) {
+        Ok(file) => {
+            let cwd = file.get_cwd().unwrap();
+            let argc = args_vec.len();
+            process.exec(file, args_vec);
+            process.inner_exclusive_access().self_exe = cwd;
+            // return argc because cx.x[10] will be covered with it later
+            argc as isize
+        }
+        Err(errno) => errno,
     }
 }
 

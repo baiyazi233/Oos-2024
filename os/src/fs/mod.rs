@@ -17,7 +17,7 @@ pub use self::layout::*;
 
 pub use self::fat32::{BlockDevice, DiskInodeType, BLOCK_SZ};
 
-use self::{cache::PageCache, directory_tree::DirectoryTreeNode, file_trait::File};
+pub use self::{cache::PageCache, directory_tree::DirectoryTreeNode, file_trait::File};
 use crate::{
     mm::{FrameTracker, UserBuffer},
     syscall::errno::*, config::SYSTEM_FD_LIMIT,
@@ -29,6 +29,7 @@ use alloc::{
 };
 use lazy_static::*;
 use spin::Mutex;
+pub use dev::stdio::{Stdin, Stdout};
 
 lazy_static! {
     pub static ref ROOT_FD: Arc<FileDescriptor> = Arc::new(FileDescriptor::new(
