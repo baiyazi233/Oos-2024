@@ -1,12 +1,13 @@
 pub mod null;
-pub mod pipe;
-pub mod tty;
+// pub mod pipe;
+// pub mod tty;
 pub mod zero;
 pub mod socket;
 pub mod hwclock;
 pub mod stdio;
 
 #[macro_export]
+/// Create a device number.
 macro_rules! makedev {
     ($x:literal, $y:literal) => {
         (($x & 0xfffff000) << 32)

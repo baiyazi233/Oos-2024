@@ -8,9 +8,11 @@ use alloc::sync::{Arc, Weak};
 use alloc::vec::Vec;
 
 #[derive(Copy, Clone)]
+/// stdin file
 pub struct Stdin;
 
 #[derive(Copy, Clone)]
+/// stdout file
 pub struct Stdout;
 
 impl File for Stdin {
@@ -59,9 +61,9 @@ impl File for Stdin {
         todo!()
     }
 
-    // fn read_all(&self) -> Vec<u8> {
-    //     Vec::new()
-    // }
+    fn read_all(&self) -> Vec<u8> {
+        Vec::new()
+    }
 
     fn write(&self, offset: Option<&mut usize>, buf: &[u8]) -> usize {
         todo!()
@@ -222,9 +224,9 @@ impl File for Stdout {
         todo!()
     }
 
-    // fn read_all(&self) -> Vec<u8> {
-    //     Vec::new()
-    // }
+    fn read_all(&self) -> Vec<u8> {
+        Vec::new()
+    }
 
     fn write(&self, offset: Option<&mut usize>, buf: &[u8]) -> usize {
         print!("{}", core::str::from_utf8(buf).unwrap());

@@ -9,7 +9,8 @@ use lazy_static::*;
 use spin::{Mutex, RwLock, RwLockWriteGuard, MutexGuard};
 
 use super::{
-    dev::{null::Null, tty::Teletype, zero::Zero},
+    // dev::{null::Null, tty::Teletype, zero::Zero},
+    dev::{null::Null, zero::Zero},
     file_trait::File,
     filesystem::FileSystem,
     layout::OpenFlags, Hwclock,
@@ -608,16 +609,16 @@ fn init_device_directory() {
         Arc::new(Zero {}),
         Arc::downgrade(&dev_inode.get_arc()),
     );
-    let tty_dev = DirectoryTreeNode::new(
-        "tty".to_string(),
-        Arc::new(FileSystem::new(FS::Null)),
-        Arc::new(Teletype::new()),
-        Arc::downgrade(&dev_inode.get_arc()),
-    );
+    // let tty_dev = DirectoryTreeNode::new(
+    //     "tty".to_string(),
+    //     Arc::new(FileSystem::new(FS::Null)),
+    //     Arc::new(Teletype::new()),
+    //     Arc::downgrade(&dev_inode.get_arc()),
+    // );
     let mut lock = dev_inode.children.write();
     lock.as_mut().unwrap().insert("null".to_string(), null_dev);
     lock.as_mut().unwrap().insert("zero".to_string(), zero_dev);
-    lock.as_mut().unwrap().insert("tty".to_string(), tty_dev);
+    // lock.as_mut().unwrap().insert("tty".to_string(), tty_dev);
     drop(lock);
 
     let misc_inode = match dev_inode.cd_path("./misc") {

@@ -201,6 +201,7 @@ pub const EPROTONOSUPPORT: isize = -93;
 pub const ESOCKTNOSUPPORT: isize = -94;
 /// Operation not supported on transport endpoint
 pub const EOPNOTSUPP: isize = -95;
+/// Protocol family not supported
 pub const ENOTSUP: isize = EOPNOTSUPP;
 /// Protocol family not supported
 pub const EPFNOSUPPORT: isize = -96;
@@ -279,6 +280,7 @@ pub const ENOTRECOVERABLE: isize = -131;
 pub const ERFKILL: isize = -132;
 /// Memory page has hardware error
 pub const EHWPOISON: isize = -133;
+
 
 #[derive(Debug, Eq, PartialEq, TryFromPrimitive)]
 #[repr(isize)]

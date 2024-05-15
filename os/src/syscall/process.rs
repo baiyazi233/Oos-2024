@@ -1,6 +1,6 @@
 use crate::{
     config::MAX_SYSCALL_NUM,
-    fs::OpenFlags,
+    fs::{OpenFlags, FileDescriptor},
     mm::{translated_ref, translated_refmut, translated_str},
     task::{
         current_process, current_task, current_user_token, exit_current_and_run_next, pid2process,
@@ -92,15 +92,14 @@ pub fn sys_exec(path: *const u8, mut args: *const usize) -> isize {
     let working_inode = process
         .inner_exclusive_access()
         .work_path
-        .lock()
         .working_inode
         .clone();
     match working_inode.open(&path, OpenFlags::O_RDONLY, false) {
         Ok(file) => {
-            let cwd = file.get_cwd().unwrap();
+            let all_data = file.read_all();
             let argc = args_vec.len();
-            process.exec(file, args_vec);
-            process.inner_exclusive_access().self_exe = cwd;
+            process.exec(all_data.as_slice(), args_vec);
+            // process.inner_exclusive_access().self_exe = cwd;
             // return argc because cx.x[10] will be covered with it later
             argc as isize
         }

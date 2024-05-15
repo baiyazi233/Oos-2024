@@ -1,102 +1,103 @@
 use crate::fs::*;
-use crate::mm::{translated_byte_buffer, translated_refmut, translated_str, UserBuffer};
-use crate::task::{current_process, current_task, current_user_token};
+// use crate::mm::{translated_byte_buffer, translated_refmut, translated_str, UserBuffer};
+// use crate::task::{current_process, current_task, current_user_token};
+use crate::task::{current_process, current_task};
 use alloc::sync::Arc;
-use super::errno::*;
+// use super::errno::*;
 
-pub const AT_FDCWD: usize = 100usize.wrapping_neg();
+// pub const AT_FDCWD: usize = 100usize.wrapping_neg();
 /// write syscall
-pub fn sys_write(fd: usize, buf: *const u8, len: usize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_write",
-        current_task().unwrap().process.upgrade().unwrap().getpid()
-    );
-    let token = current_user_token();
-    let process = current_process();
-    let inner = process.inner_exclusive_access();
-    if fd >= inner.fd_table.len() {
-        return -1;
-    }
-    if let Some(file) = &inner.fd_table[fd] {
-        if !file.writable() {
-            return -1;
-        }
-        let file = file.clone();
-        // release current task TCB manually to avoid multi-borrow
-        drop(inner);
-        file.write(UserBuffer::new(translated_byte_buffer(token, buf, len))) as isize
-    } else {
-        -1
-    }
-}
+// pub fn sys_write(fd: usize, buf: *const u8, len: usize) -> isize {
+//     trace!(
+//         "kernel:pid[{}] sys_write",
+//         current_task().unwrap().process.upgrade().unwrap().getpid()
+//     );
+//     let token = current_user_token();
+//     let process = current_process();
+//     let inner = process.inner_exclusive_access();
+//     if fd >= inner.fd_table.len() {
+//         return -1;
+//     }
+//     if let Some(file) = &inner.fd_table[fd] {
+//         if !file.writable() {
+//             return -1;
+//         }
+//         let file = file.clone();
+//         // release current task TCB manually to avoid multi-borrow
+//         drop(inner);
+//         file.write(UserBuffer::new(translated_byte_buffer(token, buf, len))) as isize
+//     } else {
+//         -1
+//     }
+// }
 /// read syscall
-pub fn sys_read(fd: usize, buf: *const u8, len: usize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_read",
-        current_task().unwrap().process.upgrade().unwrap().getpid()
-    );
-    let token = current_user_token();
-    let process = current_process();
-    let inner = process.inner_exclusive_access();
-    if fd >= inner.fd_table.len() {
-        return -1;
-    }
-    if let Some(file) = &inner.fd_table[fd] {
-        let file = file.clone();
-        if !file.readable() {
-            return -1;
-        }
-        // release current task TCB manually to avoid multi-borrow
-        drop(inner);
-        trace!("kernel: sys_read .. file.read");
-        file.read(UserBuffer::new(translated_byte_buffer(token, buf, len))) as isize
-    } else {
-        -1
-    }
-}
+// pub fn sys_read(fd: usize, buf: *const u8, len: usize) -> isize {
+//     trace!(
+//         "kernel:pid[{}] sys_read",
+//         current_task().unwrap().process.upgrade().unwrap().getpid()
+//     );
+//     let token = current_user_token();
+//     let process = current_process();
+//     let inner = process.inner_exclusive_access();
+//     if fd >= inner.fd_table.len() {
+//         return -1;
+//     }
+//     if let Some(file) = &inner.fd_table[fd] {
+//         let file = file.clone();
+//         if !file.readable() {
+//             return -1;
+//         }
+//         // release current task TCB manually to avoid multi-borrow
+//         drop(inner);
+//         trace!("kernel: sys_read .. file.read");
+//         file.read(UserBuffer::new(translated_byte_buffer(token, buf, len))) as isize
+//     } else {
+//         -1
+//     }
+// }
 
-pub fn sys_openat(dirfd: usize, path: *const u8, flags: u32, mode: u32) -> isize {
-    let task = current_task().unwrap();
-    let token = task.get_user_token();
-    let path = match translated_str(token, path) {
-        Ok(path) => path,
-        Err(errno) => return errno,
-    };
-    let flags = match OpenFlags::from_bits(flags) {
-        Some(flags) => flags,
-        None => {
-            warn!("[sys_openat] unknown flags");
-            return EINVAL;
-        }
-    };
-    let mode = StatMode::from_bits(mode);
-    info!(
-        "[sys_openat] dirfd: {}, path: {}, flags: {:?}, mode: {:?}",
-        dirfd as isize, path, flags, mode
-    );
-    let mut fd_table = task.files.lock();
-    let file_descriptor = match dirfd {
-        AT_FDCWD => task.fs.lock().working_inode.as_ref().clone(),
-        fd => {
-            let fd_table = task.files.lock();
-            match fd_table.get_ref(fd) {
-                Ok(file_descriptor) => file_descriptor.clone(),
-                Err(errno) => return errno,
-            }
-        }
-    };
+// pub fn sys_openat(dirfd: usize, path: *const u8, flags: u32, mode: u32) -> isize {
+//     let task = current_task().unwrap();
+//     let token = task.get_user_token();
+//     let path = match translated_str(token, path) {
+//         Ok(path) => path,
+//         Err(errno) => return errno,
+//     };
+//     let flags = match OpenFlags::from_bits(flags) {
+//         Some(flags) => flags,
+//         None => {
+//             warn!("[sys_openat] unknown flags");
+//             return EINVAL;
+//         }
+//     };
+//     let mode = StatMode::from_bits(mode);
+//     info!(
+//         "[sys_openat] dirfd: {}, path: {}, flags: {:?}, mode: {:?}",
+//         dirfd as isize, path, flags, mode
+//     );
+//     let mut fd_table = task.files.lock();
+//     let file_descriptor = match dirfd {
+//         AT_FDCWD => task.fs.lock().working_inode.as_ref().clone(),
+//         fd => {
+//             let fd_table = task.files.lock();
+//             match fd_table.get_ref(fd) {
+//                 Ok(file_descriptor) => file_descriptor.clone(),
+//                 Err(errno) => return errno,
+//             }
+//         }
+//     };
 
-    let new_file_descriptor = match file_descriptor.open(&path, flags, false) {
-        Ok(file_descriptor) => file_descriptor,
-        Err(errno) => return errno,
-    };
+//     let new_file_descriptor = match file_descriptor.open(&path, flags, false) {
+//         Ok(file_descriptor) => file_descriptor,
+//         Err(errno) => return errno,
+//     };
 
-    let new_fd = match fd_table.insert(new_file_descriptor) {
-        Ok(fd) => fd,
-        Err(errno) => return errno,
-    };
-    new_fd as isize
-}
+//     let new_fd = match fd_table.insert(new_file_descriptor) {
+//         Ok(fd) => fd,
+//         Err(errno) => return errno,
+//     };
+//     new_fd as isize
+// }
 /// open sys
 // pub fn sys_open(path: *const u8, flags: u32) -> isize {
 //     trace!(
@@ -133,23 +134,23 @@ pub fn sys_close(fd: usize) -> isize {
     0
 }
 /// pipe syscall
-pub fn sys_pipe(pipe: *mut usize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_pipe",
-        current_task().unwrap().process.upgrade().unwrap().getpid()
-    );
-    let process = current_process();
-    let token = current_user_token();
-    let mut inner = process.inner_exclusive_access();
-    let (pipe_read, pipe_write) = make_pipe();
-    let read_fd = inner.alloc_fd();
-    inner.fd_table[read_fd] = Some(pipe_read);
-    let write_fd = inner.alloc_fd();
-    inner.fd_table[write_fd] = Some(pipe_write);
-    *translated_refmut(token, pipe) = read_fd;
-    *translated_refmut(token, unsafe { pipe.add(1) }) = write_fd;
-    0
-}
+// pub fn sys_pipe(pipe: *mut usize) -> isize {
+//     trace!(
+//         "kernel:pid[{}] sys_pipe",
+//         current_task().unwrap().process.upgrade().unwrap().getpid()
+//     );
+//     let process = current_process();
+//     let token = current_user_token();
+//     let mut inner = process.inner_exclusive_access();
+//     let (pipe_read, pipe_write) = make_pipe();
+//     let read_fd = inner.alloc_fd();
+//     inner.fd_table[read_fd] = Some(pipe_read);
+//     let write_fd = inner.alloc_fd();
+//     inner.fd_table[write_fd] = Some(pipe_write);
+//     *translated_refmut(token, pipe) = read_fd;
+//     *translated_refmut(token, unsafe { pipe.add(1) }) = write_fd;
+//     0
+// }
 /// dup syscall
 pub fn sys_dup(fd: usize) -> isize {
     trace!(

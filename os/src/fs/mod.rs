@@ -8,7 +8,8 @@ mod layout;
 #[cfg(feature = "swap")]
 pub mod swap;
 
-pub use self::dev::{hwclock::*, null::*, pipe::*, socket::*, tty::*, zero::*};
+// pub use self::dev::{hwclock::*, null::*, pipe::*, socket::*, tty::*, zero::*};
+pub use self::dev::{hwclock::*, null::*, socket::*, zero::*};
 use core::{
     slice::{Iter, IterMut},
 };
@@ -19,7 +20,8 @@ pub use self::fat32::{BlockDevice, DiskInodeType, BLOCK_SZ};
 
 pub use self::{cache::PageCache, directory_tree::DirectoryTreeNode, file_trait::File};
 use crate::{
-    mm::{FrameTracker, UserBuffer},
+    // mm::{FrameTracker, UserBuffer},
+    mm::UserBuffer,
     syscall::errno::*, config::SYSTEM_FD_LIMIT,
 };
 use alloc::{
@@ -90,6 +92,9 @@ impl FileDescriptor {
     }
     pub fn read(&self, offset: Option<&mut usize>, buf: &mut [u8]) -> usize {
         self.file.read(offset, buf)
+    }
+    pub fn read_all(&self) -> Vec<u8> {
+        self.file.read_all()
     }
     pub fn write(&self, offset: Option<&mut usize>, buf: &[u8]) -> usize {
         self.file.write(offset, buf)
@@ -221,23 +226,23 @@ impl FileDescriptor {
         self.file.ioctl(cmd, argp)
     }
     // for execve
-    pub fn map_to_kernel_space(&self, addr: usize) -> &'static [u8] {
-        let caches = self.get_all_caches().unwrap();
-        let frames: Vec<Arc<FrameTracker>> = caches
-            .iter()
-            .map(|cache| cache.try_lock().unwrap().get_tracker())
-            .collect();
+    // pub fn map_to_kernel_space(&self, addr: usize) -> &'static [u8] {
+    //     let caches = self.get_all_caches().unwrap();
+    //     let frames: Vec<Arc<FrameTracker>> = caches
+    //         .iter()
+    //         .map(|cache| cache.try_lock().unwrap().get_tracker())
+    //         .collect();
 
-        crate::mm::KERNEL_SPACE
-            .lock()
-            .insert_program_area(
-                addr.into(),
-                crate::mm::MapPermission::R | crate::mm::MapPermission::W,
-                frames,
-            )
-            .unwrap();
-        unsafe { core::slice::from_raw_parts_mut(addr as *mut u8, self.get_size()) }
-    }
+    //     crate::mm::KERNEL_SPACE
+    //         .lock()
+    //         .insert_program_area(
+    //             addr.into(),
+    //             crate::mm::MapPermission::R | crate::mm::MapPermission::W,
+    //             frames,
+    //         )
+    //         .unwrap();
+    //     unsafe { core::slice::from_raw_parts_mut(addr as *mut u8, self.get_size()) }
+    // }
 }
 
 #[derive(Clone)]

@@ -110,11 +110,18 @@ pub fn frame_alloc() -> Option<FrameTracker> {
         .map(FrameTracker::new)
 }
 
+/// Allocate a physical page frame in Arc<FrameTracker> style
 #[cfg(not(feature = "oom_handler"))]
-pub unsafe fn frame_alloc_uninit() -> Option<Arc<FrameTracker>> {
-    FRAME_ALLOCATOR.write().alloc_uninit().map(|frame_tracker| Arc::new(frame_tracker))
+pub fn frame_alloc_arc() -> Option<Arc<FrameTracker>> {
+    FRAME_ALLOCATOR
+        .exclusive_access()
+        .alloc()
+        .map(FrameTracker::new)
+        .map(|frame_tracker| Arc::new(frame_tracker))
 }
 
+
+/// Reserve a physical page frame with a given ppn
 #[cfg(not(feature = "oom_handler"))]
 pub fn frame_reserve(_num: usize) {
     // do nothing

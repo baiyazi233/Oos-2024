@@ -178,8 +178,11 @@ pub struct FSInfo {
 }
 
 #[derive(PartialEq, Debug, Clone, Copy)]
+/// 
 pub enum DiskInodeType {
+    /// 
     File,
+    /// 
     Directory,
 }
 

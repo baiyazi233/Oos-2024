@@ -6,7 +6,7 @@ use crate::{
     mm::UserBuffer,
     syscall::errno::{ENOTDIR, ESPIPE},
 };
-
+use alloc::vec::Vec;
 /// Data Sink
 /// Data written to the `/dev/null` special files is discarded.
 /// Reads  from `/dev/null` always return end of file (i.e., read(2) returns 0)
@@ -27,6 +27,9 @@ impl File for Null {
 
     fn read(&self, offset: Option<&mut usize>, buf: &mut [u8]) -> usize {
         unreachable!()
+    }
+    fn read_all(&self) -> Vec<u8> {
+        Vec::new()
     }
 
     fn write(&self, offset: Option<&mut usize>, buf: &[u8]) -> usize {

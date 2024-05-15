@@ -100,6 +100,21 @@ impl File for OSInode {
             }
         }
     }
+    fn read_all(&self) -> Vec<u8> {
+        let mut buffer = [0u8; 512];
+        let mut buffer = buffer.as_mut_slice();
+        let mut v: Vec<u8> = Vec::new();
+        let mut offset = 0;
+        loop {
+            let len = self.inner.read_at_block_cache(offset.clone(), buffer);
+            if len == 0 {
+                break;
+            }
+            offset += len;
+            v.extend_from_slice(&buffer[..len]);
+        }
+        v
+    }
     /// If offset is not `None`, `kwrite()` will start writing file from `*offset`,
     /// the `*offset` is adjusted to reflect the number of bytes read from the buffer,
     /// and the file offset won't be modified.

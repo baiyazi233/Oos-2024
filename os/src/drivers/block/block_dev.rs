@@ -1,5 +1,6 @@
 use core::any::Any;
 
+/// The size of a block
 pub const BLOCK_SZ: usize = 512;
 /// We should regulate the behavior of this trait on FAILURE
 /// e.g. What if buf.len()>BLOCK_SZ for read_block?

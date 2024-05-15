@@ -1,6 +1,7 @@
 use super::BlockDevice;
 use crate::config::{PAGE_SIZE, PAGE_SIZE_BITS};
-use crate::mm::{frame_alloc, FrameTracker, PageTableEntry, KERNEL_SPACE};
+// use crate::mm::{frame_alloc, frame_alloc_arc, FrameTracker, PageTableEntry, KERNEL_SPACE};
+use crate::mm::{frame_alloc_arc, FrameTracker};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use spin::Mutex;
@@ -124,7 +125,7 @@ impl BlockCacheManager {
         let mut hold: Vec<Arc<FrameTracker>> = Vec::new();
         let mut cache_pool: Vec<Arc<Mutex<BufferCache>>> = Vec::new();
         for i in 0..CACHEPOOLPAGE {
-            hold.push(frame_alloc().unwrap());
+            hold.push(frame_alloc_arc().unwrap());
             let page_ptr = (hold[i].ppn.0 << PAGE_SIZE_BITS) as *mut [u8; BUFFER_SIZE];
             for j in 0..PAGE_BUFFERS {
                 let buffer_ptr = unsafe { page_ptr.add(j) };
@@ -208,21 +209,21 @@ impl Cache for PageCache {
     }
 
     fn sync(&self, block_ids: Vec<usize>, block_device: &Arc<dyn BlockDevice>) {
-        match self.get_pte() {
-            Some(pte) => {
-                if !pte.is_dirty() {
-                    return;
-                }
-            }
-            None => {}
-        }
+        // match self.get_pte() {
+        //     Some(pte) => {
+        //         if !pte.is_dirty() {
+        //             return;
+        //         }
+        //     }
+        //     None => {}
+        // }
         self.write_back(block_ids, block_device)
     }
 }
 
 impl PageCache {
     pub fn new() -> Self {
-        let tracker = unsafe { crate::mm::frame_alloc_uninit().unwrap() };
+        let tracker = crate::mm::frame_alloc_arc().unwrap();
         let page_ptr = (tracker.ppn.0 << PAGE_SIZE_BITS) as *mut [u8; PAGE_SIZE];
         let page_ptr = unsafe { page_ptr.as_mut().unwrap() };
         Self {
@@ -236,13 +237,13 @@ impl PageCache {
         self.tracker.clone()
     }
 
-    fn get_pte(&self) -> Option<PageTableEntry> {
-        let lock = KERNEL_SPACE.try_lock();
-        match lock {
-            Some(lock) => Some(lock.translate(self.tracker.ppn.0.into())).unwrap(),
-            None => None,
-        }
-    }
+    // fn get_pte(&self) -> Option<PageTableEntry> {
+    //     let lock = KERNEL_SPACE.try_lock();
+    //     match lock {
+    //         Some(lock) => Some(lock.translate(self.tracker.ppn.0.into())).unwrap(),
+    //         None => None,
+    //     }
+    // }
 
     pub fn read_in(&mut self, block_ids: Vec<usize>, block_device: &Arc<dyn BlockDevice>) {
         if block_ids.is_empty() {
@@ -280,10 +281,10 @@ impl PageCache {
         };
         block_device.read_block(start_block_id, buf);
         self.page_ptr[block_ids.len() * BUFFER_SIZE..].fill(0);
-        KERNEL_SPACE
-            .lock()
-            .clear_dirty_bit(self.tracker.ppn.0.into())
-            .unwrap();
+        // KERNEL_SPACE
+        //     .lock()
+        //     .clear_dirty_bit(self.tracker.ppn.0.into())
+        //     .unwrap();
     }
 
     pub fn write_back(&self, block_ids: Vec<usize>, block_device: &Arc<dyn BlockDevice>) {

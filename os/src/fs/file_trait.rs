@@ -22,6 +22,7 @@ pub trait File: DowncastSync {
     fn readable(&self) -> bool;
     fn writable(&self) -> bool;
     fn read(&self, offset: Option<&mut usize>, buf: &mut [u8]) -> usize;
+    fn read_all(&self) -> Vec<u8>;
     fn write(&self, offset: Option<&mut usize>, buf: &[u8]) -> usize;
     fn r_ready(&self) -> bool;
     fn w_ready(&self) -> bool;

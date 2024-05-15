@@ -173,9 +173,9 @@ lazy_static! {
     /// the name "initproc" may be changed to any other app name like "usertests",
     /// but we have user_shell, so we don't need to change it.
     pub static ref INITPROC: Arc<ProcessControlBlock> = {
-        let initproc_fd = ROOT_FD.open("/initproc", OpenFlags::O_RDONLY, true).unwrap();
-        // let initproc_fd = ROOT_FD.open("/initprocfortest", OpenFlags::O_RDONLY, true).unwrap();
-        ProcessControlBlock::new(initproc_fd)
+        let initproc_fd = ROOT_FD.open("initproc", OpenFlags::O_RDONLY, true).unwrap();
+        let v = initproc_fd.read_all();
+        ProcessControlBlock::new(v.as_slice())
     };
 }
 

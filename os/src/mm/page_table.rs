@@ -62,6 +62,10 @@ impl PageTableEntry {
     pub fn executable(&self) -> bool {
         (self.flags() & PTEFlags::X) != PTEFlags::empty()
     }
+    /// 
+    pub fn is_dirty(&self) -> bool {
+        (self.flags() & PTEFlags::D) != PTEFlags::empty()
+    }
 }
 
 /// page table structure
@@ -236,6 +240,12 @@ impl UserBuffer {
         }
         total
     }
+    /// Clear the buffer
+    pub fn clear(&mut self) {
+        self.buffers.iter_mut().for_each(|buffer| {
+            buffer.fill(0);
+        })
+    }
 }
 
 impl IntoIterator for UserBuffer {
@@ -276,43 +286,3 @@ impl Iterator for UserBufferIterator {
 }
 
 
-/// new
-/// Copy `*src: T` to kernel space.
-/// `src` is a pointer in user space, `dst` is a pointer in kernel space.
-pub fn copy_from_user<T: 'static + Copy>(
-    token: usize,
-    src: *const T,
-    dst: *mut T,
-) -> Result<(), isize> {
-    let size = core::mem::size_of::<T>();
-    // if all data of `*src` is in the same page, read directly
-    if VirtAddr::from(src as usize).floor() == VirtAddr::from(src as usize + size - 1).floor() {
-        unsafe { _core::ptr::copy_nonoverlapping(translated_ref(token, src)?, dst, 1) };
-    // or we should use UserBuffer to read across user space pages
-    } else {
-        UserBuffer::new(translated_byte_buffer(token, src as *const u8, size)?)
-            .read(unsafe { core::slice::from_raw_parts_mut(dst as *mut u8, size) });
-    }
-    Ok(())
-}
-
-/// new
-/// Copy `*src: T` to user space.
-/// `src` is a pointer in kernel space, `dst` is a pointer in user space.
-pub fn copy_to_user<T: 'static + Copy>(
-    token: usize,
-    src: *const T,
-    dst: *mut T,
-) -> Result<(), isize> {
-    let size = core::mem::size_of::<T>();
-    // A nice predicate. Well done!
-    // Re: Thanks!
-    if VirtAddr::from(dst as usize).floor() == VirtAddr::from(dst as usize + size - 1).floor() {
-        unsafe { _core::ptr::copy_nonoverlapping(src, translated_refmut(token, dst)?, 1) };
-    // use UserBuffer to write across user space pages
-    } else {
-        UserBuffer::new(translated_byte_buffer(token, dst as *mut u8, size)?)
-            .write(unsafe { core::slice::from_raw_parts(src as *const u8, size) });
-    }
-    Ok(())
-}
