@@ -24,13 +24,17 @@
 #![no_main]
 #![feature(panic_info_message)]
 #![feature(alloc_error_handler)]
-#![feature(string_remove_matches)]
-#[macro_use]
-extern crate bitflags;
+
 #[macro_use]
 extern crate log;
 
 extern crate alloc;
+
+#[macro_use]
+extern crate bitflags;
+
+#[path = "boards/qemu.rs"]
+mod board;
 
 #[macro_use]
 mod console;
@@ -50,7 +54,7 @@ pub mod trap;
 use core::arch::global_asm;
 
 global_asm!(include_str!("entry.asm"));
-/// clear BSS segment
+
 fn clear_bss() {
     extern "C" {
         fn sbss();
@@ -73,7 +77,7 @@ pub fn rust_main() -> ! {
     trap::init();
     trap::enable_timer_interrupt();
     timer::set_next_trigger();
-    fs::list_apps();
+    fs::directory_tree::init_fs();
     task::add_initproc();
     task::run_tasks();
     panic!("Unreachable in rust_main!");

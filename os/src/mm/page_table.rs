@@ -4,7 +4,6 @@ use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 use bitflags::*;
-use crate::syscall::errno::EPERM;
 
 bitflags! {
     /// page table entry flags
@@ -63,9 +62,6 @@ impl PageTableEntry {
     pub fn executable(&self) -> bool {
         (self.flags() & PTEFlags::X) != PTEFlags::empty()
     }
-    pub fn is_dirty(&self) -> bool {
-        (self.flags() & PTEFlags::D) != PTEFlags::empty()
-    }
 }
 
 /// page table structure
@@ -91,7 +87,6 @@ impl PageTable {
             frames: Vec::new(),
         }
     }
-    /// Find PageTableEntry by VirtPageNum, create a frame for a 4KB page table if not exist
     fn find_pte_create(&mut self, vpn: VirtPageNum) -> Option<&mut PageTableEntry> {
         let idxs = vpn.indexes();
         let mut ppn = self.root_ppn;
@@ -111,7 +106,6 @@ impl PageTable {
         }
         result
     }
-    /// Find PageTableEntry by VirtPageNum
     fn find_pte(&self, vpn: VirtPageNum) -> Option<&mut PageTableEntry> {
         let idxs = vpn.indexes();
         let mut ppn = self.root_ppn;
@@ -160,32 +154,9 @@ impl PageTable {
     pub fn token(&self) -> usize {
         8usize << 60 | self.root_ppn.0
     }
-
-    pub fn set_pte_flags(&self, vpn: VirtPageNum, flags: PTEFlags) -> bool {
-        if let Some(pte) = self.find_pte(vpn) {
-            if !pte.is_valid() {
-                return false;
-            }
-            pte.bits = pte.ppn().0 << 10 | (flags | PTEFlags::U | PTEFlags::V).bits() as usize;
-            true
-        } else {
-            false
-        }
-    }
-    pub fn delete_pte_flags(&self, vpn: VirtPageNum, flags: PTEFlags) -> bool {
-        if let Some(pte) = self.find_pte(vpn) {
-            if !pte.is_valid() {
-                return false;
-            }
-            pte.bits = pte.bits & !(flags.bits() as usize);
-            true
-        } else {
-            false
-        }
-    }
 }
 
-/// Translate&Copy a ptr[u8] array with LENGTH len to a mutable u8 Vec through page table
+/// Create mutable `Vec<u8>` slice in kernel space from ptr in other address space. NOTICE: the content pointed to by the pointer `ptr` can cross physical pages.
 pub fn translated_byte_buffer(token: usize, ptr: *const u8, len: usize) -> Vec<&'static mut [u8]> {
     let page_table = PageTable::from_token(token);
     let mut start = ptr as usize;
@@ -208,7 +179,7 @@ pub fn translated_byte_buffer(token: usize, ptr: *const u8, len: usize) -> Vec<&
     v
 }
 
-/// Translate&Copy a ptr[u8] array end with `\0` to a `String` Vec through page table
+/// Create String in kernel address space from u8 Array(end with 0) in other address space
 pub fn translated_str(token: usize, ptr: *const u8) -> String {
     let page_table = PageTable::from_token(token);
     let mut string = String::new();
@@ -227,8 +198,7 @@ pub fn translated_str(token: usize, ptr: *const u8) -> String {
     string
 }
 
-#[allow(unused)]
-/// Translate a ptr[u8] array through page table and return a reference of T
+/// translate a pointer `ptr` in other address space to a immutable u8 slice in kernel address space. NOTICE: the content pointed to by the pointer `ptr` cannot cross physical pages, otherwise translated_byte_buffer should be used.
 pub fn translated_ref<T>(token: usize, ptr: *const T) -> &'static T {
     let page_table = PageTable::from_token(token);
     page_table
@@ -236,7 +206,8 @@ pub fn translated_ref<T>(token: usize, ptr: *const T) -> &'static T {
         .unwrap()
         .get_ref()
 }
-/// Translate a ptr[u8] array through page table and return a mutable reference of T
+
+/// translate a pointer `ptr` in other address space to a mutable u8 slice in kernel address space. NOTICE: the content pointed to by the pointer `ptr` cannot cross physical pages, otherwise translated_byte_buffer should be used.
 pub fn translated_refmut<T>(token: usize, ptr: *mut T) -> &'static mut T {
     let page_table = PageTable::from_token(token);
     let va = ptr as usize;
@@ -264,51 +235,6 @@ impl UserBuffer {
             total += b.len();
         }
         total
-    }
-    pub fn clear(&mut self) {
-        self.buffers.iter_mut().for_each(|buffer| {
-            buffer.fill(0);
-        })
-    }
-    pub fn write_at(&mut self, offset: usize, buf: &[u8]) -> isize {
-        assert!(!self.buffers.is_empty());
-        if offset + buf.len() > self.len() {
-            // println!("[page_table] function write_at: wrong size, offset = {}, buf.len() = {}, self.len() = {}",offset, buf.len(), self.len());
-            panic!("[page_table] function write_at: wrong size");
-        }
-        let len = (self.len() - offset).min(buf.len());
-
-        let mut offset_user_buffer = 0; // UserBuffer
-        let mut offset_buf = 0; // buf
-        for sub_buff in self.buffers.iter_mut() {
-            let sub_buffer_len = (*sub_buff).len();
-            if offset_user_buffer + sub_buffer_len < offset {
-                // This subbuffer has no intersection with buf that input.
-                // This subbuffer precedes the destination buffer.
-                continue;
-            } else if offset_user_buffer < offset {
-                // Because offset_userBuffer plus sub_buffer_len NOT samller than offset, this subBuffer must intersect with buf that input.
-                for index in (offset - offset_user_buffer)..sub_buffer_len {
-                    (*sub_buff)[index] = buf[offset_buf];
-                    offset_buf += 1;
-                    if offset_buf == len {
-                        return len as isize;
-                    }
-                }
-            } else {
-                // We don't need to tell if the current subbuffer is lagging behind the destination buffer,
-                // because at that time the function has already returned
-                for index in 0..sub_buffer_len {
-                    (*sub_buff)[index] = buf[offset_buf];
-                    offset_buf += 1;
-                    if offset_buf == len {
-                        return len as isize;
-                    }
-                }
-            }
-            offset_user_buffer += sub_buffer_len;
-        }
-        EPERM
     }
 }
 
@@ -347,4 +273,46 @@ impl Iterator for UserBufferIterator {
             Some(r)
         }
     }
+}
+
+
+/// new
+/// Copy `*src: T` to kernel space.
+/// `src` is a pointer in user space, `dst` is a pointer in kernel space.
+pub fn copy_from_user<T: 'static + Copy>(
+    token: usize,
+    src: *const T,
+    dst: *mut T,
+) -> Result<(), isize> {
+    let size = core::mem::size_of::<T>();
+    // if all data of `*src` is in the same page, read directly
+    if VirtAddr::from(src as usize).floor() == VirtAddr::from(src as usize + size - 1).floor() {
+        unsafe { _core::ptr::copy_nonoverlapping(translated_ref(token, src)?, dst, 1) };
+    // or we should use UserBuffer to read across user space pages
+    } else {
+        UserBuffer::new(translated_byte_buffer(token, src as *const u8, size)?)
+            .read(unsafe { core::slice::from_raw_parts_mut(dst as *mut u8, size) });
+    }
+    Ok(())
+}
+
+/// new
+/// Copy `*src: T` to user space.
+/// `src` is a pointer in kernel space, `dst` is a pointer in user space.
+pub fn copy_to_user<T: 'static + Copy>(
+    token: usize,
+    src: *const T,
+    dst: *mut T,
+) -> Result<(), isize> {
+    let size = core::mem::size_of::<T>();
+    // A nice predicate. Well done!
+    // Re: Thanks!
+    if VirtAddr::from(dst as usize).floor() == VirtAddr::from(dst as usize + size - 1).floor() {
+        unsafe { _core::ptr::copy_nonoverlapping(src, translated_refmut(token, dst)?, 1) };
+    // use UserBuffer to write across user space pages
+    } else {
+        UserBuffer::new(translated_byte_buffer(token, dst as *mut u8, size)?)
+            .write(unsafe { core::slice::from_raw_parts(src as *const u8, size) });
+    }
+    Ok(())
 }

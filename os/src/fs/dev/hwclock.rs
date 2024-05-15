@@ -2,7 +2,6 @@ use crate::{
     fs::{file_trait::File, DiskInodeType},
     syscall::errno::{SUCCESS, ENOTDIR},
 };
-use alloc::vec::Vec;
 
 pub struct Hwclock;
 
@@ -22,10 +21,6 @@ impl File for Hwclock {
 
     fn read(&self, offset: Option<&mut usize>, buf: &mut [u8]) -> usize {
         todo!()
-    }
-
-    fn read_all(&self) -> Vec<u8>{
-        Vec::new()
     }
 
     fn write(&self, offset: Option<&mut usize>, buf: &[u8]) -> usize {

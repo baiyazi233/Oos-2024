@@ -1,7 +1,7 @@
-//! Implementation of [`FrameAllocator`] which
-//! controls all the frames in the operating system.
+//! Physical page frame allocator
+
 use super::{PhysAddr, PhysPageNum};
-use crate::{config::MEMORY_END, fs};
+use crate::config::MEMORY_END;
 use crate::sync::UPSafeCell;
 use alloc::{sync::Arc, vec::Vec};
 use core::fmt::{self, Debug, Formatter};
@@ -11,7 +11,6 @@ use lazy_static::*;
 pub struct FrameTracker {
     /// physical page number
     pub ppn: PhysPageNum,
-    pub hold: bool,
 }
 
 impl FrameTracker {
@@ -22,10 +21,7 @@ impl FrameTracker {
         for i in bytes_array {
             *i = 0;
         }
-        Self { ppn, hold: true  }
-    }
-    pub fn cover(ppn: PhysPageNum) -> Self {
-        Self { ppn, hold: false }
+        Self { ppn }
     }
 }
 
@@ -37,9 +33,7 @@ impl Debug for FrameTracker {
 
 impl Drop for FrameTracker {
     fn drop(&mut self) {
-        if self.hold {
-            frame_dealloc(self.ppn);
-        }
+        frame_dealloc(self.ppn);
     }
 }
 
@@ -48,29 +42,20 @@ trait FrameAllocator {
     fn alloc(&mut self) -> Option<PhysPageNum>;
     fn dealloc(&mut self, ppn: PhysPageNum);
 }
-/// an implementation for frame allocator
+
 pub struct StackFrameAllocator {
-    /// 当前可分配的物理页号
     current: usize,
-    /// 可分配的最大物理页号
     end: usize,
-    /// 用于存储已释放的物理页号
     recycled: Vec<usize>,
 }
 
 impl StackFrameAllocator {
-    /// 初始化帧分配器，设置可分配的物理页号范围
     pub fn init(&mut self, l: PhysPageNum, r: PhysPageNum) {
         self.current = l.0;
         self.end = r.0;
-        println!("last {} Physical Frames, memory = {:#X}000", self.end - self.current, self.end);
-    }
-    /// 获取当前未分配的物理页号数量
-    pub fn unallocated_frames(&self) -> usize {
-        self.recycled.len() + self.end - self.current
+        // trace!("last {} Physical Frames.", self.end - self.current);
     }
 }
-
 impl FrameAllocator for StackFrameAllocator {
     fn new() -> Self {
         Self {
@@ -103,11 +88,10 @@ impl FrameAllocator for StackFrameAllocator {
 type FrameAllocatorImpl = StackFrameAllocator;
 
 lazy_static! {
-    /// frame allocator instance through lazy_static!
     pub static ref FRAME_ALLOCATOR: UPSafeCell<FrameAllocatorImpl> =
         unsafe { UPSafeCell::new(FrameAllocatorImpl::new()) };
 }
-/// initiate the frame allocator using `ekernel` and `MEMORY_END`
+
 pub fn init_frame_allocator() {
     extern "C" {
         fn ekernel();
@@ -118,16 +102,6 @@ pub fn init_frame_allocator() {
     );
 }
 
-pub fn frame_reserve(num: usize) {
-    let remain = FRAME_ALLOCATOR.exclusive_access().unallocated_frames();
-    if remain < num {
-        panic!("[frame_reserve] failed");
-        // oom_handler(num - remain).unwrap()
-    }
-}
-
-
-
 /// Allocate a physical page frame in FrameTracker style
 pub fn frame_alloc() -> Option<FrameTracker> {
     FRAME_ALLOCATOR
@@ -136,28 +110,22 @@ pub fn frame_alloc() -> Option<FrameTracker> {
         .map(FrameTracker::new)
 }
 
+#[cfg(not(feature = "oom_handler"))]
+pub unsafe fn frame_alloc_uninit() -> Option<Arc<FrameTracker>> {
+    FRAME_ALLOCATOR.write().alloc_uninit().map(|frame_tracker| Arc::new(frame_tracker))
+}
+
+#[cfg(not(feature = "oom_handler"))]
+pub fn frame_reserve(_num: usize) {
+    // do nothing
+}
+
 /// Deallocate a physical page frame with a given ppn
 pub fn frame_dealloc(ppn: PhysPageNum) {
     FRAME_ALLOCATOR.exclusive_access().dealloc(ppn);
 }
 
-pub fn frame_alloc_arc() -> Option<Arc<FrameTracker>> {
-    let result = FRAME_ALLOCATOR.exclusive_access().alloc();
-    if let Some(frame) = result {
-        return Some(Arc::new(FrameTracker::new(frame)));
-    }
-    drop(result);
-    oom_handler(1).unwrap();
-    FRAME_ALLOCATOR
-        .exclusive_access()
-        .alloc()
-        .map(FrameTracker::new)
-        .map(Arc::new)
-}
-
-
 #[allow(unused)]
-/// a simple test for frame allocator
 pub fn frame_allocator_test() {
     let mut v: Vec<FrameTracker> = Vec::new();
     for i in 0..5 {
@@ -173,18 +141,4 @@ pub fn frame_allocator_test() {
     }
     drop(v);
     println!("frame_allocator_test passed!");
-}
-
-pub fn oom_handler(req: usize) -> Result<(), ()> {
-    // clean fs
-    // println!("[oom_handler] start");
-    // show_unallocated_frames();
-    let mut released = 0;
-    released += fs::directory_tree::oom();
-    // show_unallocated_frames();
-    if released >= req {
-        return Ok(());
-    }
-    println!("[oom_handler] fail");
-    Err(())
 }

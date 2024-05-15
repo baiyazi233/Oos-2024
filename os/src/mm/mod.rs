@@ -12,17 +12,17 @@ mod heap_allocator;
 mod memory_set;
 mod page_table;
 
+use core::arch::asm;
 use address::VPNRange;
 pub use address::{PhysAddr, PhysPageNum, StepByOne, VirtAddr, VirtPageNum};
-pub use frame_allocator::{frame_alloc, frame_dealloc, FrameTracker, frame_alloc_arc, frame_reserve};
+pub use frame_allocator::{frame_alloc, frame_dealloc, FrameTracker, frame_alloc_uninit, frame_reserve};
 pub use memory_set::remap_test;
 pub use memory_set::{kernel_token, MapPermission, MemorySet, KERNEL_SPACE};
 use page_table::PTEFlags;
 pub use page_table::{
     translated_byte_buffer, translated_ref, translated_refmut, translated_str, PageTable,
-    PageTableEntry, UserBuffer, UserBufferIterator,
+    PageTableEntry, UserBuffer, UserBufferIterator, copy_from_user, copy_to_user,
 };
-use core::arch::asm;
 
 /// initiate heap allocator, frame allocator and kernel space
 pub fn init() {

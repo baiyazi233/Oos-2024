@@ -9,7 +9,7 @@ use lazy_static::*;
 use spin::{Mutex, RwLock, RwLockWriteGuard, MutexGuard};
 
 use super::{
-    dev::{null::Null, zero::Zero},
+    dev::{null::Null, tty::Teletype, zero::Zero},
     file_trait::File,
     filesystem::FileSystem,
     layout::OpenFlags, Hwclock,
@@ -236,9 +236,9 @@ impl DirectoryTreeNode {
         inode.cd_comp(&components)
     }
     fn create(&self, name: &str, file_type: DiskInodeType) -> Result<Arc<dyn File>, isize> {
-        if name == "" || !self.file.is_dir() {
-            debug_assert!(false);
-        }
+        // if name == "" || !self.file.is_dir() {
+        //     debug_assert!(false);
+        // }
         self.file.create(name, file_type)
     }
     pub fn open(
@@ -256,7 +256,7 @@ impl DirectoryTreeNode {
         } else {
             path
         };
-        const LIBC_PATH: &str = "/libc.so";
+        const LIBC_PATH: &str = "/lib/libc.so";
         const REDIRECT_TO_LIBC: [&str; 3] = [
             "/lib/ld-musl-riscv64.so.1",
             "/lib/ld-musl-riscv64-sf.so.1",
@@ -559,7 +559,7 @@ pub fn oom() -> usize {
     tlb_invalidate();
     const MAX_FAIL_TIME: usize = 3;
     let mut fail_time = 0;
-    // log!("[oom] start oom");
+    log::warn!("[oom] start oom");
     let mut lock = DIRECTORY_VEC.lock();
     update_directory_vec(&mut lock);
     loop {
@@ -569,7 +569,7 @@ pub fn oom() -> usize {
             dropped += inode.file.oom();
         }
         if dropped > 0 {
-            // log!("[oom] recycle pages: {}", dropped);
+            log::warn!("[oom] recycle pages: {}", dropped);
             return dropped;
         }
         fail_time += 1;
@@ -608,16 +608,16 @@ fn init_device_directory() {
         Arc::new(Zero {}),
         Arc::downgrade(&dev_inode.get_arc()),
     );
-    // let tty_dev = DirectoryTreeNode::new(
-    //     "tty".to_string(),
-    //     Arc::new(FileSystem::new(FS::Null)),
-    //     Arc::new(Teletype::new()),
-    //     Arc::downgrade(&dev_inode.get_arc()),
-    // );
+    let tty_dev = DirectoryTreeNode::new(
+        "tty".to_string(),
+        Arc::new(FileSystem::new(FS::Null)),
+        Arc::new(Teletype::new()),
+        Arc::downgrade(&dev_inode.get_arc()),
+    );
     let mut lock = dev_inode.children.write();
     lock.as_mut().unwrap().insert("null".to_string(), null_dev);
     lock.as_mut().unwrap().insert("zero".to_string(), zero_dev);
-    // lock.as_mut().unwrap().insert("tty".to_string(), tty_dev);
+    lock.as_mut().unwrap().insert("tty".to_string(), tty_dev);
     drop(lock);
 
     let misc_inode = match dev_inode.cd_path("./misc") {

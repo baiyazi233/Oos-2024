@@ -1,9 +1,10 @@
-//! Implementation of [`MapArea`] and [`MemorySet`].
+//! Address Space [`MemorySet`] management of Process
+
 use super::{frame_alloc, FrameTracker};
 use super::{PTEFlags, PageTable, PageTableEntry};
 use super::{PhysAddr, PhysPageNum, VirtAddr, VirtPageNum};
 use super::{StepByOne, VPNRange};
-use crate::config::{MEMORY_END, MMIO, PAGE_SIZE, TRAMPOLINE, TRAP_CONTEXT_BASE, USER_STACK_SIZE};
+use crate::config::{MEMORY_END, MMIO, PAGE_SIZE, TRAMPOLINE};
 use crate::sync::UPSafeCell;
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
@@ -38,8 +39,10 @@ pub fn kernel_token() -> usize {
 
 /// address space
 pub struct MemorySet {
-    page_table: PageTable,
-    areas: Vec<MapArea>,
+    /// page table
+    pub page_table: PageTable,
+    /// areas
+    pub areas: Vec<MapArea>,
 }
 
 impl MemorySet {
@@ -50,7 +53,7 @@ impl MemorySet {
             areas: Vec::new(),
         }
     }
-    /// Get the page table token
+    /// Get he page table token
     pub fn token(&self) -> usize {
         self.page_table.token()
     }
@@ -66,23 +69,6 @@ impl MemorySet {
             None,
         );
     }
-
-    /// 在内存集中清空映射区域
-    pub fn remove_framed_area(&mut self, start_va: VirtAddr, end_va: VirtAddr) -> isize {
-        // 遍历所有映射区域
-        let mut index = 0;
-        while index < self.areas.len() {
-            let area = &mut self.areas[index];
-            if area.vpn_range.get_start() == start_va.floor() && area.vpn_range.get_end() == end_va.ceil() {
-                area.unmap(&mut self.page_table); // 解除映射
-                self.areas.remove(index); // 移除映射区域
-                return 0;
-            }
-            index += 1;
-        }
-        return -1;
-    }
-
     /// remove a area
     pub fn remove_area_with_start_vpn(&mut self, start_vpn: VirtPageNum) {
         if let Some((idx, area)) = self
@@ -93,6 +79,9 @@ impl MemorySet {
         {
             area.unmap(&mut self.page_table);
             self.areas.remove(idx);
+            unsafe {
+                asm!("sfence.vma");
+            }
         }
     }
     /// Add a new MapArea into this MemorySet.
@@ -104,15 +93,6 @@ impl MemorySet {
             map_area.copy_data(&mut self.page_table, data);
         }
         self.areas.push(map_area);
-    }
-    pub fn map_app_data(
-        &mut self,
-        start_va: VirtAddr,
-        map_perm: MapPermission,
-        frame_trackers: Vec<Arc<FrameTracker>>,
-    ) {
-        let map_area = MapArea::from_existed(start_va, MapType::Marked, map_perm, frame_trackers);
-        self.push(map_area, None);
     }
     /// Mention that trampoline is not collected by areas.
     fn map_trampoline(&mut self) {
@@ -185,7 +165,6 @@ impl MemorySet {
             ),
             None,
         );
-        // 进行的是透明的恒等映射，让内核可以兼容于直接访问物理地址的设备驱动库
         info!("mapping memory-mapped registers");
         for pair in MMIO {
             memory_set.push(
@@ -239,42 +218,11 @@ impl MemorySet {
         }
         // map user stack with U flags
         let max_end_va: VirtAddr = max_end_vpn.into();
-        let mut user_stack_bottom: usize = max_end_va.into();
-        // guard page
-        user_stack_bottom += PAGE_SIZE;
-        let user_stack_top = user_stack_bottom + USER_STACK_SIZE;
-        memory_set.push(
-            MapArea::new(
-                user_stack_bottom.into(),
-                user_stack_top.into(),
-                MapType::Framed,
-                MapPermission::R | MapPermission::W | MapPermission::U,
-            ),
-            None,
-        );
-        // used in sbrk
-        memory_set.push(
-            MapArea::new(
-                user_stack_top.into(),
-                user_stack_top.into(),
-                MapType::Framed,
-                MapPermission::R | MapPermission::W | MapPermission::U,
-            ),
-            None,
-        );
-        // map TrapContext
-        memory_set.push(
-            MapArea::new(
-                TRAP_CONTEXT_BASE.into(),
-                TRAMPOLINE.into(),
-                MapType::Framed,
-                MapPermission::R | MapPermission::W,
-            ),
-            None,
-        );
+        let mut user_stack_base: usize = max_end_va.into();
+        user_stack_base += PAGE_SIZE;
         (
             memory_set,
-            user_stack_top,
+            user_stack_base,
             elf.header.pt2.entry_point() as usize,
         )
     }
@@ -345,25 +293,13 @@ impl MemorySet {
             false
         }
     }
-    pub fn clear_dirty_bit(&mut self, vpn: VirtPageNum) {
-        self.page_table.delete_pte_flags(vpn, PTEFlags::D);
-    }
-    /// 检测新的映射区域是否与已有的映射区域冲突
-    pub fn check_conflict(&self, start: VirtAddr, end: VirtAddr) -> bool {
-        // any: 如果任意一个元素满足条件，则返回true
-        self.areas.iter().any(|area| {
-            let area_start = area.vpn_range.get_start();
-            let area_end = area.vpn_range.get_end();
-            (start.floor() >= area_start && start.floor() < area_end) || (end.ceil() > area_start && end.ceil() <= area_end)
-        })
-    }
 }
-/// map area structure, controls a contiguous piece of virtual memory
+
 pub struct MapArea {
-    vpn_range: VPNRange,
-    data_frames: BTreeMap<VirtPageNum, FrameTracker>,
-    map_type: MapType,
-    map_perm: MapPermission,
+    pub vpn_range: VPNRange,
+    pub data_frames: BTreeMap<VirtPageNum, FrameTracker>,
+    pub map_type: MapType,
+    pub map_perm: MapPermission,
 }
 
 impl MapArea {
@@ -400,9 +336,6 @@ impl MapArea {
                 let frame = frame_alloc().unwrap();
                 ppn = frame.ppn;
                 self.data_frames.insert(vpn, frame);
-            }
-            _ => {
-                todo!()
             }
         }
         let pte_flags = PTEFlags::from_bits(self.map_perm.bits).unwrap();
@@ -460,45 +393,12 @@ impl MapArea {
             current_vpn.step();
         }
     }
-
-    pub fn from_existed(
-        start_va: VirtAddr,
-        map_type: MapType,
-        map_perm: MapPermission,
-        frame_trackers: Vec<Arc<FrameTracker>>,
-    ) -> Self {
-        let page_count = frame_trackers.len();
-
-        let start_vpn = start_va.floor();
-        let end_vpn = VirtPageNum::from(start_vpn.0 + page_count);
-
-        let vpn_range = VPNRange::new(start_vpn, end_vpn);
-        let mut data_frames: BTreeMap<VirtPageNum, FrameTracker> = BTreeMap::new();
-
-        let mut vpn = start_vpn;
-        for page_id in 0..page_count {
-            // println!(
-            //     "[from_existed] vpn = {:?}, ppn = {:?}",
-            //     vpn, frame_trackers[page_id].ppn
-            // );
-            data_frames.insert(vpn, FrameTracker::cover(frame_trackers[page_id].ppn));
-            vpn.step();
-        }
-        Self {
-            vpn_range,
-            data_frames,
-            map_type,
-            map_perm,
-        }
-    }
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
-/// map type for memory set: identical or framed
 pub enum MapType {
     Identical,
     Framed,
-    Marked,
 }
 
 bitflags! {
@@ -515,7 +415,7 @@ bitflags! {
     }
 }
 
-/// remap test in kernel space
+/// test map function in page table
 #[allow(unused)]
 pub fn remap_test() {
     let mut kernel_space = KERNEL_SPACE.exclusive_access();

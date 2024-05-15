@@ -1,6 +1,6 @@
 use super::BlockDevice;
 use crate::config::{PAGE_SIZE, PAGE_SIZE_BITS};
-use crate::mm::{frame_alloc_arc, FrameTracker, PageTableEntry, KERNEL_SPACE};
+use crate::mm::{frame_alloc, FrameTracker, PageTableEntry, KERNEL_SPACE};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use spin::Mutex;
@@ -88,13 +88,43 @@ pub struct BlockCacheManager {
 }
 
 impl BlockCacheManager {
+    pub fn oom(&self, block_device: &Arc<dyn BlockDevice>) {
+        for buffer_cache in &self.cache_pool {
+            if Arc::strong_count(buffer_cache) > 1 {
+                continue;
+            }
+            let mut locked = buffer_cache.lock();
+            if locked.priority > 0 {
+                locked.priority -= 1;
+            } else {
+                let block_id = locked.block_id;
+                let buf = locked.buffer.as_ref();
+                block_device.write_block(block_id, buf);
+                locked.block_id = usize::MAX;
+            }
+        }
+    }
+    fn alloc_buffer_cache(&self, block_device: &Arc<dyn BlockDevice>) -> Arc<Mutex<BufferCache>> {
+        loop {
+            for buffer_cache in &self.cache_pool {
+                let locked = buffer_cache.lock();
+                if locked.block_id == usize::MAX {
+                    return buffer_cache.clone();
+                }
+            }
+            self.oom(block_device);
+        }
+    }
+}
+
+impl BlockCacheManager {
     pub const CACHE_SZ: usize = BUFFER_SIZE;
 
     pub fn new() -> Self {
         let mut hold: Vec<Arc<FrameTracker>> = Vec::new();
         let mut cache_pool: Vec<Arc<Mutex<BufferCache>>> = Vec::new();
         for i in 0..CACHEPOOLPAGE {
-            hold.push(frame_alloc_arc().unwrap());
+            hold.push(frame_alloc().unwrap());
             let page_ptr = (hold[i].ppn.0 << PAGE_SIZE_BITS) as *mut [u8; BUFFER_SIZE];
             for j in 0..PAGE_BUFFERS {
                 let buffer_ptr = unsafe { page_ptr.add(j) };
@@ -138,35 +168,6 @@ impl BlockCacheManager {
             }
         }
     }
-    
-    pub fn oom(&self, block_device: &Arc<dyn BlockDevice>) {
-        for buffer_cache in &self.cache_pool {
-            if Arc::strong_count(buffer_cache) > 1 {
-                continue;
-            }
-            let mut locked = buffer_cache.lock();
-            if locked.priority > 0 {
-                locked.priority -= 1;
-            } else {
-                let block_id = locked.block_id;
-                let buf = locked.buffer.as_ref();
-                block_device.write_block(block_id, buf);
-                locked.block_id = usize::MAX;
-            }
-        }
-    }
-    fn alloc_buffer_cache(&self, block_device: &Arc<dyn BlockDevice>) -> Arc<Mutex<BufferCache>> {
-        loop {
-            for buffer_cache in &self.cache_pool {
-                let locked = buffer_cache.lock();
-                if locked.block_id == usize::MAX {
-                    return buffer_cache.clone();
-                }
-            }
-            self.oom(block_device);
-        }
-    }
-
 }
 
 /// PageCache is used for kernel.
@@ -215,14 +216,13 @@ impl Cache for PageCache {
             }
             None => {}
         }
-        // println!("write_back, frametracker = {:#x}", self.tracker.ppn.0);
         self.write_back(block_ids, block_device)
     }
 }
 
 impl PageCache {
     pub fn new() -> Self {
-        let tracker = crate::mm::frame_alloc_arc().unwrap();
+        let tracker = unsafe { crate::mm::frame_alloc_uninit().unwrap() };
         let page_ptr = (tracker.ppn.0 << PAGE_SIZE_BITS) as *mut [u8; PAGE_SIZE];
         let page_ptr = unsafe { page_ptr.as_mut().unwrap() };
         Self {
@@ -237,9 +237,11 @@ impl PageCache {
     }
 
     fn get_pte(&self) -> Option<PageTableEntry> {
-        KERNEL_SPACE
-            .exclusive_access()
-            .translate(self.tracker.ppn.0.into())
+        let lock = KERNEL_SPACE.try_lock();
+        match lock {
+            Some(lock) => Some(lock.translate(self.tracker.ppn.0.into())).unwrap(),
+            None => None,
+        }
     }
 
     pub fn read_in(&mut self, block_ids: Vec<usize>, block_device: &Arc<dyn BlockDevice>) {
@@ -278,10 +280,10 @@ impl PageCache {
         };
         block_device.read_block(start_block_id, buf);
         self.page_ptr[block_ids.len() * BUFFER_SIZE..].fill(0);
-        // println!("read_in, clear_dirty_bit = {:#x}", self.tracker.ppn.0);
         KERNEL_SPACE
-            .exclusive_access()
-            .clear_dirty_bit(self.tracker.ppn.0.into());
+            .lock()
+            .clear_dirty_bit(self.tracker.ppn.0.into())
+            .unwrap();
     }
 
     pub fn write_back(&self, block_ids: Vec<usize>, block_device: &Arc<dyn BlockDevice>) {
@@ -335,6 +337,21 @@ impl PageCacheManager {
             cache_pool: Mutex::new(Vec::new()),
             allocated_cache: Mutex::new(Vec::new()),
         }
+    }
+
+    pub fn try_get_cache(&self, inner_cache_id: usize) -> Option<Arc<Mutex<PageCache>>> {
+        let lock = self.cache_pool.lock();
+        if inner_cache_id >= lock.len() {
+            return None;
+        }
+        let page_cache = lock[inner_cache_id].clone();
+        if let Some(page_cache) = &page_cache {
+            let mut locked = page_cache.lock();
+            if locked.priority < PRIORITY_UPPERBOUND {
+                locked.priority += 1;
+            }
+        }
+        page_cache
     }
 
     pub fn get_cache<FUNC>(

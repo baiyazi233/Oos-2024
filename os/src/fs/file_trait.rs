@@ -2,8 +2,7 @@ use crate::{
     mm::UserBuffer,
     syscall::{errno::ENOTTY},
 };
-// use __alloc::string::String;
-use alloc::string::String;
+use __alloc::string::String;
 use alloc::{
     sync::{Arc, Weak},
     vec::Vec,
@@ -23,7 +22,6 @@ pub trait File: DowncastSync {
     fn readable(&self) -> bool;
     fn writable(&self) -> bool;
     fn read(&self, offset: Option<&mut usize>, buf: &mut [u8]) -> usize;
-    fn read_all(&self) -> Vec<u8>;
     fn write(&self, offset: Option<&mut usize>, buf: &[u8]) -> usize;
     fn r_ready(&self) -> bool;
     fn w_ready(&self) -> bool;

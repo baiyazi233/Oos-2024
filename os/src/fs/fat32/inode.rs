@@ -1,11 +1,18 @@
+// use crate::fs::directory_tree::DirectoryTreeNode;
+// use crate::fs::file_trait::File;
 use crate::fs::*;
+// use crate::mm::UserBuffer;
 use crate::syscall::errno::*;
 use core::panic;
 
 use super::layout::FATDiskInodeType;
+// pub use super::DiskInodeType;
 use super::Inode;
+// use alloc::string::ToString;
+// use alloc::sync::{Arc, Weak};
 use alloc::sync::Weak;
-
+// use alloc::vec::Vec;
+// use spin::Mutex;
 
 pub type InodeImpl = Inode;
 
@@ -93,24 +100,6 @@ impl File for OSInode {
             }
         }
     }
-
-    fn read_all(&self) -> Vec<u8> {
-        let mut buffer = [0u8; 512];
-        let mut buffer = buffer.as_mut_slice();
-        let mut v: Vec<u8> = Vec::new();
-        let mut offset = 0;
-        loop {
-            let len = self.inner.read_at_block_cache(offset, buffer);
-            // If return value is equal to zero, it means the file end
-            if len == 0 {
-                break;
-            }
-            offset += len;
-            v.extend_from_slice(&buffer[..len]);
-        }
-        v
-    }
-
     /// If offset is not `None`, `kwrite()` will start writing file from `*offset`,
     /// the `*offset` is adjusted to reflect the number of bytes read from the buffer,
     /// and the file offset won't be modified.
@@ -278,8 +267,11 @@ impl File for OSInode {
             .inner
             .get_all_files_lock(&inode_lock)
             .iter()
-            .map(|(name, short_ent, offset)| (name.clone(), get_dyn_file(short_ent, *offset)))
-            .collect())
+            .map(|(name, short_ent, offset)|{
+                (name.clone(),get_dyn_file(short_ent, *offset))
+            })
+            .collect()
+        )
     }
     fn create(&self, name: &str, file_type: DiskInodeType) -> Result<Arc<dyn File>, isize> {
         let inode_lock = self.inner.write();

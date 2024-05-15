@@ -27,7 +27,7 @@ mod test;
 
 pub use frame::*;
 
-/// A heap that uses buddy system with configurable order.
+/// A heap that uses buddy system
 ///
 /// # Usage
 ///
@@ -35,7 +35,7 @@ pub use frame::*;
 /// ```
 /// use buddy_system_allocator::*;
 /// # use core::mem::size_of;
-/// let mut heap = Heap::<32>::empty();
+/// let mut heap = Heap::empty();
 /// # let space: [usize; 100] = [0; 100];
 /// # let begin: usize = space.as_ptr() as usize;
 /// # let end: usize = begin + 100 * size_of::<usize>();
@@ -46,9 +46,9 @@ pub use frame::*;
 ///     heap.add_to_heap(begin, end);
 /// }
 /// ```
-pub struct Heap<const ORDER: usize> {
-    // buddy system with max order of `ORDER`
-    free_list: [linked_list::LinkedList; ORDER],
+pub struct Heap {
+    // buddy system with max order of 32
+    free_list: [linked_list::LinkedList; 32],
 
     // statistics
     user: usize,
@@ -56,11 +56,11 @@ pub struct Heap<const ORDER: usize> {
     total: usize,
 }
 
-impl<const ORDER: usize> Heap<ORDER> {
+impl Heap {
     /// Create an empty heap
     pub const fn new() -> Self {
         Heap {
-            free_list: [linked_list::LinkedList::new(); ORDER],
+            free_list: [linked_list::LinkedList::new(); 32],
             user: 0,
             allocated: 0,
             total: 0,
@@ -198,7 +198,7 @@ impl<const ORDER: usize> Heap<ORDER> {
     }
 }
 
-impl<const ORDER: usize> fmt::Debug for Heap<ORDER> {
+impl fmt::Debug for Heap {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         fmt.debug_struct("Heap")
             .field("user", &self.user)
@@ -216,7 +216,7 @@ impl<const ORDER: usize> fmt::Debug for Heap<ORDER> {
 /// ```
 /// use buddy_system_allocator::*;
 /// # use core::mem::size_of;
-/// let mut heap = LockedHeap::<32>::new();
+/// let mut heap = LockedHeap::new();
 /// # let space: [usize; 100] = [0; 100];
 /// # let begin: usize = space.as_ptr() as usize;
 /// # let end: usize = begin + 100 * size_of::<usize>();
@@ -228,32 +228,32 @@ impl<const ORDER: usize> fmt::Debug for Heap<ORDER> {
 /// }
 /// ```
 #[cfg(feature = "use_spin")]
-pub struct LockedHeap<const ORDER: usize>(Mutex<Heap<ORDER>>);
+pub struct LockedHeap(Mutex<Heap>);
 
 #[cfg(feature = "use_spin")]
-impl<const ORDER: usize> LockedHeap<ORDER> {
+impl LockedHeap {
     /// Creates an empty heap
-    pub const fn new() -> Self {
-        LockedHeap(Mutex::new(Heap::<ORDER>::new()))
+    pub const fn new() -> LockedHeap {
+        LockedHeap(Mutex::new(Heap::new()))
     }
 
     /// Creates an empty heap
-    pub const fn empty() -> Self {
-        LockedHeap(Mutex::new(Heap::<ORDER>::new()))
+    pub const fn empty() -> LockedHeap {
+        LockedHeap(Mutex::new(Heap::new()))
     }
 }
 
 #[cfg(feature = "use_spin")]
-impl<const ORDER: usize> Deref for LockedHeap<ORDER> {
-    type Target = Mutex<Heap<ORDER>>;
+impl Deref for LockedHeap {
+    type Target = Mutex<Heap>;
 
-    fn deref(&self) -> &Self::Target {
+    fn deref(&self) -> &Mutex<Heap> {
         &self.0
     }
 }
 
 #[cfg(feature = "use_spin")]
-unsafe impl<const ORDER: usize> GlobalAlloc for LockedHeap<ORDER> {
+unsafe impl GlobalAlloc for LockedHeap {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         self.0
             .lock()
@@ -274,54 +274,54 @@ unsafe impl<const ORDER: usize> GlobalAlloc for LockedHeap<ORDER> {
 /// Create a locked heap:
 /// ```
 /// use buddy_system_allocator::*;
-/// let heap = LockedHeapWithRescue::new(|heap: &mut Heap<32>, layout: &core::alloc::Layout| {});
+/// let heap = LockedHeapWithRescue::new(|heap: &mut Heap| {});
 /// ```
 ///
 /// Before oom, the allocator will try to call rescue function and try for one more time.
 #[cfg(feature = "use_spin")]
-pub struct LockedHeapWithRescue<const ORDER: usize> {
-    inner: Mutex<Heap<ORDER>>,
-    rescue: fn(&mut Heap<ORDER>, &Layout),
+pub struct LockedHeapWithRescue {
+    inner: Mutex<Heap>,
+    rescue: fn(&mut Heap),
 }
 
 #[cfg(feature = "use_spin")]
-impl<const ORDER: usize> LockedHeapWithRescue<ORDER> {
+impl LockedHeapWithRescue {
     /// Creates an empty heap
     #[cfg(feature = "const_fn")]
-    pub const fn new(rescue: fn(&mut Heap<ORDER>, &Layout)) -> Self {
+    pub const fn new(rescue: fn(&mut Heap)) -> LockedHeapWithRescue {
         LockedHeapWithRescue {
-            inner: Mutex::new(Heap::<ORDER>::new()),
+            inner: Mutex::new(Heap::new()),
             rescue,
         }
     }
 
     /// Creates an empty heap
     #[cfg(not(feature = "const_fn"))]
-    pub fn new(rescue: fn(&mut Heap<ORDER>, &Layout)) -> Self {
+    pub fn new(rescue: fn(&mut Heap)) -> LockedHeapWithRescue {
         LockedHeapWithRescue {
-            inner: Mutex::new(Heap::<ORDER>::new()),
+            inner: Mutex::new(Heap::new()),
             rescue,
         }
     }
 }
 
 #[cfg(feature = "use_spin")]
-impl<const ORDER: usize> Deref for LockedHeapWithRescue<ORDER> {
-    type Target = Mutex<Heap<ORDER>>;
+impl Deref for LockedHeapWithRescue {
+    type Target = Mutex<Heap>;
 
-    fn deref(&self) -> &Self::Target {
+    fn deref(&self) -> &Mutex<Heap> {
         &self.inner
     }
 }
 
 #[cfg(feature = "use_spin")]
-unsafe impl<const ORDER: usize> GlobalAlloc for LockedHeapWithRescue<ORDER> {
+unsafe impl GlobalAlloc for LockedHeapWithRescue {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let mut inner = self.inner.lock();
         match inner.alloc(layout) {
             Ok(allocation) => allocation.as_ptr(),
             Err(_) => {
-                (self.rescue)(&mut inner, &layout);
+                (self.rescue)(&mut inner);
                 inner
                     .alloc(layout)
                     .ok()
