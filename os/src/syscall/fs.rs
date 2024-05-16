@@ -1,60 +1,46 @@
 use crate::fs::*;
-// use crate::mm::{translated_byte_buffer, translated_refmut, translated_str, UserBuffer};
-// use crate::task::{current_process, current_task, current_user_token};
-use crate::task::{current_process, current_task};
+use crate::mm::{translated_byte_buffer, translated_refmut, translated_str, UserBuffer};
+use crate::task::{current_process, current_task, current_user_token};
 use alloc::sync::Arc;
-// use super::errno::*;
+use super::errno::*;
 
 // pub const AT_FDCWD: usize = 100usize.wrapping_neg();
 /// write syscall
-// pub fn sys_write(fd: usize, buf: *const u8, len: usize) -> isize {
-//     trace!(
-//         "kernel:pid[{}] sys_write",
-//         current_task().unwrap().process.upgrade().unwrap().getpid()
-//     );
-//     let token = current_user_token();
-//     let process = current_process();
-//     let inner = process.inner_exclusive_access();
-//     if fd >= inner.fd_table.len() {
-//         return -1;
-//     }
-//     if let Some(file) = &inner.fd_table[fd] {
-//         if !file.writable() {
-//             return -1;
-//         }
-//         let file = file.clone();
-//         // release current task TCB manually to avoid multi-borrow
-//         drop(inner);
-//         file.write(UserBuffer::new(translated_byte_buffer(token, buf, len))) as isize
-//     } else {
-//         -1
-//     }
-// }
+pub fn sys_write(fd: usize, buf: *const u8, len: usize) -> isize {
+    let token = current_user_token();
+    let process = current_process();
+    let inner = process.inner_exclusive_access();
+    let fd_table = inner.fd_table.lock();
+    let file_descriptor = match fd_table.get_ref(fd) {
+        Ok(file_descriptor) => file_descriptor,
+        Err(errno) => return errno,
+    };
+    if !file_descriptor.writable() {
+        return EBADF;
+    }
+    file_descriptor.write_user(
+        None,
+        UserBuffer::new(translated_byte_buffer(token, buf, len)),
+    ) as isize
+}
 /// read syscall
-// pub fn sys_read(fd: usize, buf: *const u8, len: usize) -> isize {
-//     trace!(
-//         "kernel:pid[{}] sys_read",
-//         current_task().unwrap().process.upgrade().unwrap().getpid()
-//     );
-//     let token = current_user_token();
-//     let process = current_process();
-//     let inner = process.inner_exclusive_access();
-//     if fd >= inner.fd_table.len() {
-//         return -1;
-//     }
-//     if let Some(file) = &inner.fd_table[fd] {
-//         let file = file.clone();
-//         if !file.readable() {
-//             return -1;
-//         }
-//         // release current task TCB manually to avoid multi-borrow
-//         drop(inner);
-//         trace!("kernel: sys_read .. file.read");
-//         file.read(UserBuffer::new(translated_byte_buffer(token, buf, len))) as isize
-//     } else {
-//         -1
-//     }
-// }
+pub fn sys_read(fd: usize, buf: *const u8, len: usize) -> isize {
+    let token = current_user_token();
+    let process = current_process();
+    let inner = process.inner_exclusive_access();
+    let fd_table = inner.fd_table.lock();
+    let file_descriptor = match fd_table.get_ref(fd) {
+        Ok(file_descriptor) => file_descriptor,
+        Err(errno) => return errno,
+    };
+    if !file_descriptor.readable() {
+        return EBADF;
+    }
+    file_descriptor.read_user(
+        None,
+        UserBuffer::new(translated_byte_buffer(token, buf, len)),
+    ) as isize
+}
 
 // pub fn sys_openat(dirfd: usize, path: *const u8, flags: u32, mode: u32) -> isize {
 //     let task = current_task().unwrap();
@@ -118,20 +104,13 @@ use alloc::sync::Arc;
 // }
 /// close syscall
 pub fn sys_close(fd: usize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_close",
-        current_task().unwrap().process.upgrade().unwrap().getpid()
-    );
     let process = current_process();
-    let mut inner = process.inner_exclusive_access();
-    if fd >= inner.fd_table.len() {
-        return -1;
+    let inner = process.inner_exclusive_access();
+    let mut fd_table = inner.fd_table.lock();
+    match fd_table.remove(fd) {
+        Ok(_) => SUCCESS,
+        Err(errno) => errno,
     }
-    if inner.fd_table[fd].is_none() {
-        return -1;
-    }
-    inner.fd_table[fd].take();
-    0
 }
 /// pipe syscall
 // pub fn sys_pipe(pipe: *mut usize) -> isize {
@@ -152,23 +131,23 @@ pub fn sys_close(fd: usize) -> isize {
 //     0
 // }
 /// dup syscall
-pub fn sys_dup(fd: usize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_dup",
-        current_task().unwrap().process.upgrade().unwrap().getpid()
-    );
-    let process = current_process();
-    let mut inner = process.inner_exclusive_access();
-    if fd >= inner.fd_table.len() {
-        return -1;
-    }
-    if inner.fd_table[fd].is_none() {
-        return -1;
-    }
-    let new_fd = inner.alloc_fd();
-    inner.fd_table[new_fd] = Some(Arc::clone(inner.fd_table[fd].as_ref().unwrap()));
-    new_fd as isize
-}
+// pub fn sys_dup(fd: usize) -> isize {
+//     trace!(
+//         "kernel:pid[{}] sys_dup",
+//         current_task().unwrap().process.upgrade().unwrap().getpid()
+//     );
+//     let process = current_process();
+//     let mut inner = process.inner_exclusive_access();
+//     if fd >= inner.fd_table.len() {
+//         return -1;
+//     }
+//     if inner.fd_table[fd].is_none() {
+//         return -1;
+//     }
+//     let new_fd = inner.alloc_fd();
+//     inner.fd_table[new_fd] = Some(Arc::clone(inner.fd_table[fd].as_ref().unwrap()));
+//     new_fd as isize
+// }
 
 /// YOUR JOB: Implement fstat.
 pub fn sys_fstat(_fd: usize, _st: *mut Stat) -> isize {
