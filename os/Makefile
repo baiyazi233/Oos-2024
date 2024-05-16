@@ -59,7 +59,7 @@ apps:$(APPS)
 # build fat32 for kernel
 fat32:
 	@cd ../user && make build TEST=$(TEST)
-	@cd ../src
+	@cd ../os
 	@./buildfs.sh "$(U_FAT32_DIR)/fat32.img"
 
 env:
