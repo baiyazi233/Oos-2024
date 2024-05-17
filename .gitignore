@@ -5,3 +5,4 @@ os/.gdb*
 user/target
 testsuits-for-oskernel
 fs-fuse
+.log
