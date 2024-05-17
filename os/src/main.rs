@@ -32,6 +32,7 @@ pub mod trap;
 use core::arch::global_asm;
 
 global_asm!(include_str!("entry.asm"));
+global_asm!(include_str!("link_initial_apps.S"));
 
 fn clear_bss() {
     extern "C" {
@@ -53,10 +54,17 @@ pub fn rust_main() -> ! {
     mm::init();
     mm::remap_test();
     trap::init();
+    println!("[kernel] Finish trap init! ");
     trap::enable_timer_interrupt();
+    println!("[kernel] Finish enable timer interrupt! ");
     timer::set_next_trigger();
+    println!("[kernel] Finish set trigger! ");
     fs::directory_tree::init_fs();
+    println!("[kernel] Finish init fs! ");
+    task::load_initialproc();
+    println!("[kernel] Finish load initialproc! ");
     task::add_initproc();
+    println!("[kernel] Finish add initproc! ");
     task::run_tasks();
     panic!("Unreachable in rust_main!");
 }

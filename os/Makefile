@@ -13,7 +13,7 @@ FINAL_FAT32 := ${U_FAT32_DIR}/sdcard.img
 BOARD ?= qemu
 SBI ?= rustsbi
 BOOTLOADER := ../bootloader/$(SBI)-$(BOARD).bin
-K210_BOOTLOADER_SIZE := 131072
+
 
 # Building mode argument
 ifeq ($(MODE), release)
@@ -27,9 +27,6 @@ else ifeq ($(BOARD), k210)
 	KERNEL_ENTRY_PA := 0x80020000
 endif
 
-# Run K210
-K210-SERIALPORT	= /dev/ttyUSB1
-K210-BURNER	= ../tools/kflash.py
 
 # Binutils
 OBJDUMP := rust-objdump --arch-name=riscv64
@@ -141,8 +138,15 @@ debug: build
 
 
 gdbserver: build
-	@qemu-system-riscv64 -machine virt -nographic -bios $(BOOTLOADER) -device loader,file=$(KERNEL_BIN),addr=$(KERNEL_ENTRY_PA) -s -S
-
+	@qemu-system-riscv64 \
+			-machine virt \
+			-nographic \
+			-m 128M \
+			-bios $(BOOTLOADER) \
+			-device loader,file=$(KERNEL_BIN),addr=$(KERNEL_ENTRY_PA) \
+			-drive file=$(FINAL_FAT32),if=none,format=raw,id=x0 \
+ 	        -device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0 \
+			-gdb tcp::1122 -S
 gdbclient:
 	@riscv64-unknown-elf-gdb -ex 'file $(KERNEL_ELF)' -ex 'set arch riscv:rv64' -ex 'target remote localhost:1122'
 

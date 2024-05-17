@@ -47,7 +47,7 @@ fn main() -> i32 {
         "yield\0",  
         // "pipe\0",  
     ];
-    let mut path = String::from("/bin/riscv-syscalls-testing/"); //
+    let mut path = String::from("/bin/testsuits-for-oskernel/riscv-syscalls-testing/"); //
     let arr: [*const u8; 4] = [
         core::ptr::null::<u8>(),
         core::ptr::null::<u8>(),
