@@ -4,7 +4,7 @@ use crate::task::{current_process, current_task, current_user_token};
 use alloc::sync::Arc;
 use super::errno::*;
 
-// pub const AT_FDCWD: usize = 100usize.wrapping_neg();
+pub const AT_FDCWD: usize = 100usize.wrapping_neg();
 /// write syscall
 pub fn sys_write(fd: usize, buf: *const u8, len: usize) -> isize {
     let token = current_user_token();
@@ -42,48 +42,44 @@ pub fn sys_read(fd: usize, buf: *const u8, len: usize) -> isize {
     ) as isize
 }
 
-// pub fn sys_openat(dirfd: usize, path: *const u8, flags: u32, mode: u32) -> isize {
-//     let task = current_task().unwrap();
-//     let token = task.get_user_token();
-//     let path = match translated_str(token, path) {
-//         Ok(path) => path,
-//         Err(errno) => return errno,
-//     };
-//     let flags = match OpenFlags::from_bits(flags) {
-//         Some(flags) => flags,
-//         None => {
-//             warn!("[sys_openat] unknown flags");
-//             return EINVAL;
-//         }
-//     };
-//     let mode = StatMode::from_bits(mode);
-//     info!(
-//         "[sys_openat] dirfd: {}, path: {}, flags: {:?}, mode: {:?}",
-//         dirfd as isize, path, flags, mode
-//     );
-//     let mut fd_table = task.files.lock();
-//     let file_descriptor = match dirfd {
-//         AT_FDCWD => task.fs.lock().working_inode.as_ref().clone(),
-//         fd => {
-//             let fd_table = task.files.lock();
-//             match fd_table.get_ref(fd) {
-//                 Ok(file_descriptor) => file_descriptor.clone(),
-//                 Err(errno) => return errno,
-//             }
-//         }
-//     };
+pub fn sys_openat(dirfd: usize, path: *const u8, flags: u32, mode: u32) -> isize {
+    let process = current_process();
+    let token = current_user_token();
+    let path = translated_str(token, path);
+    let flags = match OpenFlags::from_bits(flags) {
+        Some(flags) => flags,
+        None => {
+            warn!("[sys_openat] unknown flags");
+            return EINVAL;
+        }
+    };
+    let mode = StatMode::from_bits(mode);
+    info!(
+        "[sys_openat] dirfd: {}, path: {}, flags: {:?}, mode: {:?}",
+        dirfd as isize, path, flags, mode
+    );
+    let inner = process.inner_exclusive_access();
+    let mut fd_table = inner.fd_table.lock();
+    let file_descriptor = match dirfd {
+        AT_FDCWD => inner.work_path.working_inode.as_ref().clone(),
+        fd => {
+            match fd_table.get_ref(fd) {
+                Ok(file_descriptor) => file_descriptor.clone(),
+                Err(errno) => return errno,
+            }
+        }
+    };
+    let new_file_descriptor = match file_descriptor.open(&path, flags, false) {
+        Ok(file_descriptor) => file_descriptor,
+        Err(errno) => return errno,
+    };
 
-//     let new_file_descriptor = match file_descriptor.open(&path, flags, false) {
-//         Ok(file_descriptor) => file_descriptor,
-//         Err(errno) => return errno,
-//     };
-
-//     let new_fd = match fd_table.insert(new_file_descriptor) {
-//         Ok(fd) => fd,
-//         Err(errno) => return errno,
-//     };
-//     new_fd as isize
-// }
+    let new_fd = match fd_table.insert(new_file_descriptor) {
+        Ok(fd) => fd,
+        Err(errno) => return errno,
+    };
+    new_fd as isize
+}
 /// open sys
 // pub fn sys_open(path: *const u8, flags: u32) -> isize {
 //     trace!(

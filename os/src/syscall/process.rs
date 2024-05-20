@@ -8,7 +8,7 @@ use crate::{
     },
 };
 use alloc::{string::String, sync::Arc, vec::Vec};
-
+use crate::sbi::shutdown;
 #[repr(C)]
 #[derive(Debug)]
 pub struct TimeVal {
@@ -241,4 +241,9 @@ pub fn sys_set_priority(_prio: isize) -> isize {
         current_task().unwrap().process.upgrade().unwrap().getpid()
     );
     -1
+}
+
+pub fn sys_shutdown(failure: bool) -> isize {
+    shutdown();
+    0
 }

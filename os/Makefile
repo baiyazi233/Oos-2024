@@ -8,7 +8,7 @@ DISASM_TMP := target/$(TARGET)/$(MODE)/asm
 APPS := ../user/src/bin/*
 U_FAT32_DIR := ../fs-fuse
 U_FAT32 := ${U_FAT32_DIR}/fat32.img
-FINAL_FAT32 := ${U_FAT32_DIR}/sdcard.img
+FINAL_FAT32 := ${U_FAT32_DIR}/fat32.img
 # BOARD
 BOARD ?= qemu
 SBI ?= rustsbi

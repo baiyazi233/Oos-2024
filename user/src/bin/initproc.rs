@@ -8,10 +8,9 @@ use user_lib::{exec, fork, wait, yield_};
 
 #[no_mangle]
 fn main() -> i32 {
-    // we shouldn't use it to run test apps, initproc is just initproc
     println!("[initproc] starting");
     if fork() == 0 {
-        exec("/test_shell\0", &[core::ptr::null::<u8>()]); // user_shell
+        exec("/user_shell\0", &[core::ptr::null::<u8>()]);
     } else {
         loop {
             let mut exit_code: i32 = 0;
