@@ -74,7 +74,7 @@ $(APPS):
 kernel:
 	@echo Platform: $(BOARD)
 	@cp src/linker-$(BOARD).ld src/linker.ld
-	@cargo build --release --features "board_$(BOARD)"
+	@cargo build --release --features "board_$(BOARD)" --offline
 	@rm src/linker.ld
 
 clean:
