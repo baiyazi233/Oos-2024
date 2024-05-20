@@ -6,3 +6,4 @@ user/target
 testsuits-for-oskernel
 fs-fuse
 .log
+test/*

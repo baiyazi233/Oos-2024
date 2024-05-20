@@ -13,7 +13,7 @@ fn main() -> i32 {
     let tasks = [
         // "brk\0",
         // "close\0",
-        // "execve\0",  
+        "execve\0",  
         // "fstat\0",     
         // "getpid\0",        
         // "mkdir_\0",  
@@ -33,7 +33,7 @@ fn main() -> i32 {
         // "read\0",   
         // "uname\0",   
         // "waitpid\0",
-        // "clone\0",  
+        "clone\0",  
         // "dup2\0",   
         "fork\0",    
         // "getdents\0",  

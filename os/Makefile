@@ -21,11 +21,8 @@ ifeq ($(MODE), release)
 endif
 
 # KERNEL ENTRY
-ifeq ($(BOARD), qemu)
-	KERNEL_ENTRY_PA := 0x80200000
-else ifeq ($(BOARD), k210)
-	KERNEL_ENTRY_PA := 0x80020000
-endif
+KERNEL_ENTRY_PA := 0x80200000
+
 
 
 # Binutils
@@ -40,12 +37,6 @@ TEST ?=
 
 build: env apps $(KERNEL_BIN)# fat32
 
-switch-check:
-ifeq ($(BOARD), qemu)
-	(which last-qemu) || (rm -f last-k210 && touch last-qemu && make clean)
-else ifeq ($(BOARD), k210)
-	(which last-k210) || (rm -f last-qemu && touch last-k210 && make clean)
-endif
 
 #make user apps, it should finish before fat32
 apps:$(APPS)
@@ -100,7 +91,6 @@ disasm-vim: kernel
 run: run-inner
 
 run-inner: build
-ifeq ($(BOARD),qemu)
 	@qemu-system-riscv64 \
 		-machine virt \
 		-nographic \
@@ -110,16 +100,7 @@ ifeq ($(BOARD),qemu)
 		-drive file=$(FINAL_FAT32),if=none,format=raw,id=x0 \
         -device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0 \
 		# -gdb tcp::1122 -S
-else
-# || (cd .. && git clone https://github.com/sipeed/kflash.py.git && mv kflash.py tools)
-	which $(K210-BURNER) 
-	@cp $(BOOTLOADER) $(BOOTLOADER).copy
-	@dd if=$(KERNEL_BIN) of=$(BOOTLOADER).copy bs=$(K210_BOOTLOADER_SIZE) seek=1
-	@mv $(BOOTLOADER).copy $(KERNEL_BIN)
-	@sudo chmod 777 $(K210-SERIALPORT)
-	python3 $(K210-BURNER) -p $(K210-SERIALPORT) -b 1500000 $(KERNEL_BIN)
-	python3 -m serial.tools.miniterm --eol LF --dtr 0 --rts 0 --filter direct $(K210-SERIALPORT) 115200
-endif
+
 
 debug: build
 	@qemu-system-riscv64 \

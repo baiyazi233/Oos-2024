@@ -46,6 +46,7 @@ pub const SYSCALL_GETTIMEOFDAY: usize = 169;
 pub const SYSCALL_GETPID: usize = 172;
 /// gettid syscall
 pub const SYSCALL_GETTID: usize = 178;
+pub const SYSCALL_CLONE: usize = 220;
 /// fork syscall
 pub const SYSCALL_FORK: usize = 220;
 /// exec syscall
@@ -141,8 +142,15 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
         SYSCALL_YIELD => sys_yield(),
         SYSCALL_GETPID => sys_getpid(),
         SYSCALL_GETTID => sys_gettid(),
+        SYSCALL_CLONE => sys_clone(
+            args[0] as u32,
+            args[1] as *const u8,
+            args[2] as *const u32,
+            args[3] as *const usize,
+            args[4] as *const u32,
+        ),
         SYSCALL_FORK => sys_fork(),
-        SYSCALL_EXEC => sys_exec(args[0] as *const u8, args[1] as *const usize),
+        SYSCALL_EXEC => sys_exec(args[0] as *const u8, args[1] as *const usize, args[2] as *const usize,),
         SYSCALL_WAITPID => sys_waitpid(args[0] as isize, args[1] as *mut i32),
         SYSCALL_GETTIMEOFDAY => sys_get_time(args[0] as *mut TimeVal, args[1]),
         SYSCALL_MMAP => sys_mmap(args[0], args[1], args[2]),

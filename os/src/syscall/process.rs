@@ -4,7 +4,7 @@ use crate::{
     mm::{translated_ref, translated_refmut, translated_str},
     task::{
         current_process, current_task, current_user_token, exit_current_and_run_next, pid2process,
-        suspend_current_and_run_next, SignalFlags, TaskStatus,
+        suspend_current_and_run_next, SignalFlags, TaskStatus, CloneFlags, CSIGNAL,
     },
 };
 use alloc::{string::String, sync::Arc, vec::Vec};
@@ -51,6 +51,25 @@ pub fn sys_getpid() -> isize {
     );
     current_task().unwrap().process.upgrade().unwrap().getpid() as isize
 }
+pub fn sys_clone(
+    flags: u32,
+    stack: *const u8,
+    ptid: *const u32,
+    tls: *const usize,
+    ctid: *const u32,
+) -> isize {
+    let current_process = current_process();
+    let new_process = current_process.fork();
+    let new_pid = new_process.getpid();
+    // modify trap context of new_task, because it returns immediately after switching
+    let new_process_inner = new_process.inner_exclusive_access();
+    let task = new_process_inner.tasks[0].as_ref().unwrap();
+    let trap_cx = task.inner_exclusive_access().get_trap_cx();
+    // we do not have to move to next instruction since we have done it before
+    // for child process, fork returns 0
+    trap_cx.x[10] = 0;
+    new_pid as isize
+}
 /// fork child process syscall
 pub fn sys_fork() -> isize {
     trace!(
@@ -70,7 +89,7 @@ pub fn sys_fork() -> isize {
     new_pid as isize
 }
 /// exec syscall
-pub fn sys_exec(path: *const u8, mut args: *const usize) -> isize {
+pub fn sys_exec(path: *const u8, mut args: *const usize, mut envp: *const usize) -> isize {
     trace!(
         "kernel:pid[{}] sys_exec",
         current_task().unwrap().process.upgrade().unwrap().getpid()
@@ -78,16 +97,32 @@ pub fn sys_exec(path: *const u8, mut args: *const usize) -> isize {
     let token = current_user_token();
     let path = translated_str(token, path);
     let mut args_vec: Vec<String> = Vec::new();
-    loop {
-        let arg_str_ptr = *translated_ref(token, args);
-        if arg_str_ptr == 0 {
-            break;
-        }
-        args_vec.push(translated_str(token, arg_str_ptr as *const u8));
-        unsafe {
-            args = args.add(1);
+    let mut envp_vec: Vec<String> = Vec::new();
+    if args as usize != 0 {
+        loop {
+            let arg_str_ptr = *translated_ref(token, args);
+            if arg_str_ptr == 0 {
+                break;
+            }
+            args_vec.push(translated_str(token, arg_str_ptr as *const u8));
+            unsafe {
+                args = args.add(1);
+            }
         }
     }
+    if envp as usize != 0 {
+        loop {
+            let env_str_ptr = *translated_ref(token, envp);
+            if env_str_ptr == 0 {
+                break;
+            }
+            envp_vec.push(translated_str(token, env_str_ptr as *const u8));
+            unsafe {
+                envp = envp.add(1);
+            }
+        }
+    }
+
     let process = current_process();
     let working_inode = process
         .inner_exclusive_access()
@@ -98,8 +133,7 @@ pub fn sys_exec(path: *const u8, mut args: *const usize) -> isize {
         Ok(file) => {
             let all_data = file.read_all();
             let argc = args_vec.len();
-            process.exec(all_data.as_slice(), args_vec);
-            // process.inner_exclusive_access().self_exe = cwd;
+            process.exec(all_data.as_slice(), args_vec, envp_vec);
             // return argc because cx.x[10] will be covered with it later
             argc as isize
         }
