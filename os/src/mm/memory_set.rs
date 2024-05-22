@@ -43,6 +43,7 @@ pub struct MemorySet {
     pub page_table: PageTable,
     /// areas
     pub areas: Vec<MapArea>,
+    pub heap_area: BTreeMap<VirtPageNum, FrameTracker>,
 }
 
 impl MemorySet {
@@ -51,6 +52,7 @@ impl MemorySet {
         Self {
             page_table: PageTable::new(),
             areas: Vec::new(),
+            heap_area: BTreeMap::new(),
         }
     }
     /// Get he page table token
@@ -68,6 +70,47 @@ impl MemorySet {
             MapArea::new(start_va, end_va, MapType::Framed, permission),
             None,
         );
+    }
+    pub fn map_heap(&mut self, mut current_addr: VirtAddr, aim_addr: VirtAddr) -> isize {
+        loop {
+            if current_addr.0 > aim_addr.0 {
+                break;
+            }
+            // We use BTreeMap to save FrameTracker which makes management quite easy
+            current_addr = VirtAddr::from(current_addr.0 + PAGE_SIZE);
+            // alloc a new FrameTracker
+            let frame = frame_alloc().unwrap();
+            let ppn = frame.ppn;
+            let vpn: VirtPageNum = current_addr.floor();
+            self.page_table
+                .map(vpn, ppn, PTEFlags::U | PTEFlags::R | PTEFlags::W);
+            self.heap_area.insert(vpn, frame);
+        }
+        0
+    }
+    /// 在内存集中清空映射区域
+    pub fn remove_framed_area(&mut self, start_va: VirtAddr, end_va: VirtAddr) -> isize {
+        // 遍历所有映射区域
+        let mut index = 0;
+        while index < self.areas.len() {
+            let area = &mut self.areas[index];
+            if area.vpn_range.get_start() == start_va.floor() && area.vpn_range.get_end() == end_va.ceil() {
+                area.unmap(&mut self.page_table); // 解除映射
+                self.areas.remove(index); // 移除映射区域
+                return 0;
+            }
+            index += 1;
+        }
+        return -1;
+    }
+    /// 检测新的映射区域是否与已有的映射区域冲突
+    pub fn check_conflict(&self, start: VirtAddr, end: VirtAddr) -> bool {
+        // any: 如果任意一个元素满足条件，则返回true
+        self.areas.iter().any(|area| {
+            let area_start = area.vpn_range.get_start();
+            let area_end = area.vpn_range.get_end();
+            (start.floor() >= area_start && start.floor() < area_end) || (end.ceil() > area_start && end.ceil() <= area_end)
+        })
     }
     /// remove a area
     pub fn remove_area_with_start_vpn(&mut self, start_vpn: VirtPageNum) {

@@ -6,7 +6,7 @@ use super::TaskControlBlock;
 use super::{add_task, SignalFlags};
 use super::{pid_alloc, PidHandle};
 use crate::fs::{FdTable, FileDescriptor, File, Stdin, Stdout, ROOT_FD, OpenFlags};
-use crate::mm::{translated_refmut, MemorySet, KERNEL_SPACE};
+use crate::mm::{translated_refmut, MemorySet, KERNEL_SPACE, VirtAddr, MapPermission};
 use crate::sync::{Condvar, Mutex, Semaphore, UPSafeCell};
 use crate::trap::{trap_handler, TrapContext};
 use alloc::string::String;
@@ -55,6 +55,8 @@ pub struct ProcessControlBlockInner {
     pub semaphore_list: Vec<Option<Arc<Semaphore>>>,
     /// condvar list
     pub condvar_list: Vec<Option<Arc<Condvar>>>,
+    pub heap_base: VirtAddr,
+    pub heap_end: VirtAddr,
 }
 
 impl ProcessControlBlockInner {
@@ -88,6 +90,31 @@ impl ProcessControlBlockInner {
     pub fn get_task(&self, tid: usize) -> Arc<TaskControlBlock> {
         self.tasks[tid].as_ref().unwrap().clone()
     }
+
+    /// 添加一个逻辑段到应用地址空间
+    pub fn add_maparea(&mut self, start: usize, len: usize) -> isize{
+        let start_va = VirtAddr::from(start);
+        let end_va = VirtAddr::from(start + len);
+        let permission = MapPermission::R | MapPermission::W | MapPermission::X | MapPermission::U;
+        if self.check_maparea(start_va, end_va) {
+            return -1;
+        }
+        else {
+            self.memory_set.insert_framed_area(start_va, end_va, permission);
+            return 0;   
+        }
+    }
+    /// 删除应用地址空间的一个逻辑段
+    pub fn remove_maparea(&mut self, start_va: VirtAddr, end_va: VirtAddr) -> isize {
+        self.memory_set.remove_framed_area(start_va, end_va)
+    }
+
+    /// 检测新的映射区域是否与已有的映射区域冲突
+    pub fn check_maparea(&self, start_va: VirtAddr, end_va: VirtAddr) -> bool {
+        self.memory_set.check_conflict(start_va, end_va)
+    }
+
+
 }
 
 impl ProcessControlBlock {
@@ -134,6 +161,8 @@ impl ProcessControlBlock {
                     mutex_list: Vec::new(),
                     semaphore_list: Vec::new(),
                     condvar_list: Vec::new(),
+                    heap_base: ustack_base.into(),
+                    heap_end: entry_point.into(),
                 })
             },
         });
@@ -268,6 +297,8 @@ impl ProcessControlBlock {
                     mutex_list: Vec::new(),
                     semaphore_list: Vec::new(),
                     condvar_list: Vec::new(),
+                    heap_base: parent.heap_base,
+                    heap_end: parent.heap_base,
                 })
             },
         });

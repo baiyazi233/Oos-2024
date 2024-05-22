@@ -1,11 +1,8 @@
 use crate::{
-    config::MAX_SYSCALL_NUM,
-    fs::{OpenFlags, FileDescriptor},
-    mm::{translated_ref, translated_refmut, translated_str},
-    task::{
-        current_process, current_task, current_user_token, exit_current_and_run_next, pid2process,
-        suspend_current_and_run_next, SignalFlags, TaskStatus, CloneFlags, CSIGNAL,
-    },
+    config::{MAX_SYSCALL_NUM, PAGE_SIZE,}, 
+    fs::{FileDescriptor, OpenFlags}, mm::{translated_ref, translated_refmut, translated_str}, syscall::process, task::{
+        current_process, current_task, current_user_token, exit_current_and_run_next, pid2process, suspend_current_and_run_next, CloneFlags, SignalFlags, TaskStatus, CSIGNAL
+    }
 };
 use alloc::{string::String, sync::Arc, vec::Vec};
 use crate::sbi::shutdown;
@@ -211,28 +208,51 @@ pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
     -1
 }
 
-/// task_info syscall
-///
-/// YOUR JOB: Finish sys_task_info to pass testcases
-/// HINT: You might reimplement it with virtual memory management.
-/// HINT: What if [`TaskInfo`] is splitted by two pages ?
-pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_task_info NOT IMPLEMENTED",
-        current_task().unwrap().process.upgrade().unwrap().getpid()
-    );
-    -1
+
+pub fn sys_brk(addr: usize) -> isize {
+    let process = current_process();
+    let mut inner = process.inner_exclusive_access();
+    if addr == 0 {
+        inner.heap_end.0 as isize
+    } else if addr < inner.heap_base.0 {
+        -1
+    } else {
+        // We need to calculate to determine if we need a new page table
+        // current end page address
+        let align_addr = ((addr) + PAGE_SIZE - 1) & (!(PAGE_SIZE - 1));
+        // the end of 'addr' value
+        let align_end = ((inner.heap_end.0) + PAGE_SIZE) & (!(PAGE_SIZE - 1));
+        if align_end > addr {
+            inner.heap_end = addr.into();
+            align_addr as isize
+        } else {
+            let heap_end = inner.heap_end;
+            // map heap
+            inner.memory_set.map_heap(heap_end, align_addr.into());
+            inner.heap_end = align_end.into();
+            addr as isize
+        }
+    }
 }
 
 /// mmap syscall
 ///
 /// YOUR JOB: Implement mmap.
-pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
+pub fn sys_mmap(
+    start: usize,
+    len: usize,
+    prot: usize,
+    flags: usize,
+    fd: usize,
+    offset: usize,
+) -> isize {
     trace!(
         "kernel:pid[{}] sys_mmap NOT IMPLEMENTED",
         current_task().unwrap().process.upgrade().unwrap().getpid()
     );
-    -1
+    let process = current_process();
+    let mut inner = process.inner_exclusive_access();
+    inner.add_maparea(start, len)
 }
 
 /// munmap syscall
