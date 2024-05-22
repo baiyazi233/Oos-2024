@@ -20,13 +20,11 @@ all:
 	@cp bootloader/rustsbi-qemu.bin sbi-qemu
 
 test: all
-	@cp test/sdcard.img .
-
 	@qemu-system-riscv64 -machine virt \
         -m 128M -nographic -smp 2 \
         -kernel kernel-qemu \
         -bios sbi-qemu \
-        -drive file=sdcard.img,if=none,format=raw,id=x0 \
+        -drive file=sdcard-riscv.img,if=none,format=raw,id=x0 \
         -device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0 \
         -device virtio-net-device,netdev=net \
         -netdev user,id=net | tee output.log
