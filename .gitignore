@@ -2,5 +2,4 @@ os/target
 os/.gdb*
 user/target
 *.img
-test*
 *.log
