@@ -117,6 +117,7 @@ pub fn sys_close(fd: usize) -> isize {
 //     let process = current_process();
 //     let token = current_user_token();
 //     let mut inner = process.inner_exclusive_access();
+//     let mut fd_table = inner.fd_table.lock();
 //     let (pipe_read, pipe_write) = make_pipe();
 //     let read_fd = inner.alloc_fd();
 //     inner.fd_table[read_fd] = Some(pipe_read);

@@ -51,6 +51,8 @@ fat32:
 	@./buildfs.sh "$(U_FAT32_DIR)/fat32.img"
 
 env:
+	mv cargo .cargo
+	mv ../user/cargo ../user/.cargo
 	(rustup target list | grep "riscv64gc-unknown-none-elf (installed)") || rustup target add $(TARGET)
 	# cargo install cargo-binutils
 	rustup component add rust-src
@@ -74,8 +76,11 @@ $(APPS):
 kernel:
 	@echo Platform: $(BOARD)
 	@cp src/linker-$(BOARD).ld src/linker.ld
-	@cargo build --release --features "board_$(BOARD)" --offline
+	@cargo build --release --offline
 	@rm src/linker.ld
+	@mv .cargo cargo
+	@mv ../user/.cargo ../user/cargo
+
 
 clean:
 	@cargo clean

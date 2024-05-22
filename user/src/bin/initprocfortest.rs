@@ -12,7 +12,7 @@ use user_lib::{exec, fork, shutdown, waitpid};
 fn main() -> i32 {
     let tasks = [
         // "brk\0",
-        // "close\0",
+        "close\0",
         "execve\0",  
         // "fstat\0",     
         // "getpid\0",        
@@ -29,8 +29,8 @@ fn main() -> i32 {
         // "getcwd\0",    
         // "getppid\0",       
         // "mmap\0",    
-        // "open\0",    
-        // "read\0",   
+        "open\0",    
+        "read\0",   
         // "uname\0",   
         // "waitpid\0",
         "clone\0",  
@@ -39,11 +39,11 @@ fn main() -> i32 {
         // "getdents\0",  
         // "gettimeofday\0",  
         // "mount\0",   
-        // "openat\0",  
+        "openat\0",  
         "sleep\0",  
         // "times\0",      
         // "unlink\0",  
-        // "write\0",  
+        "write\0",  
     ];
     let mut path = String::from("/bin/riscv-syscalls-testing/");
     let arr: [*const u8; 4] = [

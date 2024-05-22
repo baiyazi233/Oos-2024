@@ -10,4 +10,4 @@ rustflags = [
 replace-with = "vendored-sources"
 
 [source.vendored-sources]
-directory = "vendor"
+directory = "../vendor"
