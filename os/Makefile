@@ -7,7 +7,7 @@ DISASM_TMP := target/$(TARGET)/$(MODE)/asm
 # FS_IMG := ../user/target/$(TARGET)/$(MODE)/fs.img
 APPS := ../user/src/bin/*
 
-FAT32 := ../sdcard.img
+FAT32 := ../sdcard-riscv.img
 
 # BOARD
 BOARD ?= qemu
