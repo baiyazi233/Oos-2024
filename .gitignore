@@ -1,9 +1,6 @@
-easy-fs/target
-easy-fs-fuse/target
 os/target
 os/.gdb*
 user/target
-testsuits-for-oskernel
-fs-fuse
-.log
-test/*
+*.img
+test*
+*.log

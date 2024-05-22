@@ -6,9 +6,9 @@ KERNEL_BIN := $(KERNEL_ELF).bin
 DISASM_TMP := target/$(TARGET)/$(MODE)/asm
 # FS_IMG := ../user/target/$(TARGET)/$(MODE)/fs.img
 APPS := ../user/src/bin/*
-U_FAT32_DIR := ../fs-fuse
-U_FAT32 := ${U_FAT32_DIR}/fat32.img
-FINAL_FAT32 := ${U_FAT32_DIR}/fat32.img
+
+FAT32 := ../sdcard.img
+
 # BOARD
 BOARD ?= qemu
 SBI ?= rustsbi
@@ -35,7 +35,7 @@ DISASM ?= -x
 # Run usertests or usershell
 TEST ?=
 
-build: env apps $(KERNEL_BIN)# fat32
+build: apps $(KERNEL_BIN)# fat32
 
 
 #make user apps, it should finish before fat32
@@ -50,13 +50,6 @@ fat32:
 	@cd ../os
 	@./buildfs.sh "$(U_FAT32_DIR)/fat32.img"
 
-env:
-	mv cargo .cargo
-	mv ../user/cargo ../user/.cargo
-	(rustup target list | grep "riscv64gc-unknown-none-elf (installed)") || rustup target add $(TARGET)
-	# cargo install cargo-binutils
-	rustup component add rust-src
-	rustup component add llvm-tools-preview
 
 sdcard: fs-img
 	@echo "Are you sure write to $(SDCARD) ? [y/N] " && read ans && [ $${ans:-N} = y ]
@@ -78,8 +71,6 @@ kernel:
 	@cp src/linker-$(BOARD).ld src/linker.ld
 	@cargo build --release --offline
 	@rm src/linker.ld
-	@mv .cargo cargo
-	@mv ../user/.cargo ../user/cargo
 
 
 clean:
@@ -102,7 +93,7 @@ run-inner: build
 		-m 128M \
 		-bios $(BOOTLOADER) \
 		-device loader,file=$(KERNEL_BIN),addr=$(KERNEL_ENTRY_PA) \
-		-drive file=$(FINAL_FAT32),if=none,format=raw,id=x0 \
+		-drive file=$(FAT32),if=none,format=raw,id=x0 \
         -device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0 \
 		# -gdb tcp::1122 -S
 
@@ -114,7 +105,7 @@ debug: build
 			-m 128M \
 			-bios $(BOOTLOADER) \
 			-device loader,file=$(KERNEL_BIN),addr=$(KERNEL_ENTRY_PA) \
-			-drive file=$(FINAL_FAT32),if=none,format=raw,id=x0 \
+			-drive file=$(FAT32),if=none,format=raw,id=x0 \
  	        -device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0 \
 			-gdb tcp::1122 -S
 #	 @tmux new-session -d \
@@ -130,7 +121,7 @@ gdbserver: build
 			-m 128M \
 			-bios $(BOOTLOADER) \
 			-device loader,file=$(KERNEL_BIN),addr=$(KERNEL_ENTRY_PA) \
-			-drive file=$(FINAL_FAT32),if=none,format=raw,id=x0 \
+			-drive file=$(FAT32),if=none,format=raw,id=x0 \
  	        -device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0 \
 			-gdb tcp::1122 -S
 gdbclient:
