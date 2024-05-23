@@ -6,7 +6,7 @@ use crate::{
 };
 use alloc::{string::String, sync::Arc, vec::Vec};
 use crate::sbi::shutdown;
-use crate::timer::get_time_us;
+use crate::timer::{get_time_us, get_time_ms};
 #[repr(C)]
 #[derive(Debug)]
 pub struct TimeVal {
@@ -207,17 +207,12 @@ pub fn sys_times(times: *mut usize) -> isize {
     usec as isize
 }
 
-/// get_time syscall
-///
-/// YOUR JOB: get time with second and microsecond
-/// HINT: You might reimplement it with virtual memory management.
-/// HINT: What if [`TimeVal`] is splitted by two pages ?
-pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_get_time NOT IMPLEMENTED",
-        current_task().unwrap().process.upgrade().unwrap().getpid()
-    );
-    -1
+
+pub fn sys_get_time(time: *mut usize) -> isize {
+    let token = current_user_token();
+    *translated_refmut(token, time) = get_time_ms();
+    *translated_refmut(token, unsafe { time.add(1) }) = get_time_us();
+    0
 }
 
 
