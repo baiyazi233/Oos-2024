@@ -28,16 +28,11 @@ pub struct TaskInfo {
 ///
 /// exit the current task and run the next task in task list
 pub fn sys_exit(exit_code: i32) -> ! {
-    trace!(
-        "kernel:pid[{}] sys_exit",
-        current_task().unwrap().process.upgrade().unwrap().getpid()
-    );
     exit_current_and_run_next(exit_code);
     panic!("Unreachable in sys_exit!");
 }
 /// yield syscall
 pub fn sys_yield() -> isize {
-    //trace!("kernel: sys_yield");
     suspend_current_and_run_next();
     0
 }
@@ -143,36 +138,42 @@ pub fn sys_exec(path: *const u8, mut args: *const usize, mut envp: *const usize)
 /// If there is not a child process whose pid is same as given, return -1.
 /// Else if there is a child process but it is still running, return -2.
 pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
-    //trace!("kernel: sys_waitpid");
-    let process = current_process();
-    // find a child process
+    loop {
+        let process = current_process();
+        // find a child process
 
-    let mut inner = process.inner_exclusive_access();
-    if !inner
-        .children
-        .iter()
-        .any(|p| pid == -1 || pid as usize == p.getpid())
-    {
-        return -1;
-        // ---- release current PCB
-    }
-    let pair = inner.children.iter().enumerate().find(|(_, p)| {
-        // ++++ temporarily access child PCB exclusively
-        p.inner_exclusive_access().is_zombie && (pid == -1 || pid as usize == p.getpid())
-        // ++++ release child PCB
-    });
-    if let Some((idx, _)) = pair {
-        let child = inner.children.remove(idx);
-        // confirm that child will be deallocated after being removed from children list
-        assert_eq!(Arc::strong_count(&child), 1);
-        let found_pid = child.getpid();
-        // ++++ temporarily access child PCB exclusively
-        let exit_code = child.inner_exclusive_access().exit_code;
-        // ++++ release child PCB
-        *translated_refmut(inner.memory_set.token(), exit_code_ptr) = exit_code;
-        found_pid as isize
-    } else {
-        -2
+        let mut inner = process.inner_exclusive_access();
+        if !inner
+            .children
+            .iter()
+            .any(|p| pid == -1 || pid as usize == p.getpid())
+        {
+            return -1;
+            // ---- release current PCB
+        }
+        let pair = inner.children.iter().enumerate().find(|(_, p)| {
+            // ++++ temporarily access child PCB exclusively
+            p.inner_exclusive_access().is_zombie && (pid == -1 || pid as usize == p.getpid())
+            // ++++ release child PCB
+        });
+        if let Some((idx, _)) = pair {
+            let child = inner.children.remove(idx);
+            // confirm that child will be deallocated after being removed from children list
+            assert_eq!(Arc::strong_count(&child), 1);
+            let found_pid = child.getpid();
+            // ++++ temporarily access child PCB exclusively
+            let exit_code = child.inner_exclusive_access().exit_code;
+            // ++++ release child PCB
+            if !exit_code_ptr.is_null(){
+                *translated_refmut(inner.memory_set.token(), exit_code_ptr) = exit_code;
+            }
+            return found_pid as isize;
+        } else {
+            // drop ProcessControlBlock and ProcessControlBlock to avoid mulit-use
+            drop(inner);
+            drop(process);
+            suspend_current_and_run_next();
+        }
     }
     // ---- release current PCB automatically
 }
