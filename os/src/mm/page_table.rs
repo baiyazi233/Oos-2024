@@ -4,7 +4,7 @@ use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 use bitflags::*;
-
+use crate::syscall::errno::EPERM;
 bitflags! {
     /// page table entry flags
     pub struct PTEFlags: u8 {
@@ -245,6 +245,70 @@ impl UserBuffer {
         self.buffers.iter_mut().for_each(|buffer| {
             buffer.fill(0);
         })
+    }
+
+    pub fn write(&mut self, buf: &[u8]) -> usize {
+        // offset == 0
+        assert!(!self.buffers.is_empty());
+        let len = self.len().min(buf.len());
+        let mut write_len = 0;
+        for buffer in self.buffers.iter_mut() {
+            //当前写入的终点
+            let write_end = len.min(write_len + buffer.len());
+
+            //取部分保证两个slice等长
+            let copied_part = &buf[write_len..write_end];
+            let copy_part = &mut buffer[..(write_end - write_len)];
+            copy_part.copy_from_slice(copied_part);
+
+            //写入完成
+            if write_end == len {
+                break;
+            }
+            write_len += buffer.len();
+        }
+        len
+    }
+
+    pub fn write_at(&mut self, offset: usize, buf: &[u8]) -> isize {
+        assert!(!self.buffers.is_empty());
+        if offset + buf.len() > self.len() {
+            // println!("[page_table] function write_at: wrong size, offset = {}, buf.len() = {}, self.len() = {}",offset, buf.len(), self.len());
+            panic!("[page_table] function write_at: wrong size");
+        }
+        let len = (self.len() - offset).min(buf.len());
+
+        let mut offset_user_buffer = 0; // UserBuffer
+        let mut offset_buf = 0; // buf
+        for sub_buff in self.buffers.iter_mut() {
+            let sub_buffer_len = (*sub_buff).len();
+            if offset_user_buffer + sub_buffer_len < offset {
+                // This subbuffer has no intersection with buf that input.
+                // This subbuffer precedes the destination buffer.
+                continue;
+            } else if offset_user_buffer < offset {
+                // Because offset_userBuffer plus sub_buffer_len NOT samller than offset, this subBuffer must intersect with buf that input.
+                for index in (offset - offset_user_buffer)..sub_buffer_len {
+                    (*sub_buff)[index] = buf[offset_buf];
+                    offset_buf += 1;
+                    if offset_buf == len {
+                        return len as isize;
+                    }
+                }
+            } else {
+                // We don't need to tell if the current subbuffer is lagging behind the destination buffer,
+                // because at that time the function has already returned
+                for index in 0..sub_buffer_len {
+                    (*sub_buff)[index] = buf[offset_buf];
+                    offset_buf += 1;
+                    if offset_buf == len {
+                        return len as isize;
+                    }
+                }
+            }
+            offset_user_buffer += sub_buffer_len;
+        }
+        EPERM
     }
 }
 

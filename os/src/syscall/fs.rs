@@ -3,7 +3,7 @@ use crate::mm::{translated_byte_buffer, translated_refmut, translated_str, UserB
 use crate::task::{current_process, current_task, current_user_token};
 use alloc::sync::Arc;
 use super::errno::*;
-
+use core::mem::size_of;
 pub const AT_FDCWD: usize = 100usize.wrapping_neg();
 /// write syscall
 pub fn sys_write(fd: usize, buf: *const u8, len: usize) -> isize {
@@ -128,31 +128,47 @@ pub fn sys_close(fd: usize) -> isize {
 //     0
 // }
 /// dup syscall
-// pub fn sys_dup(fd: usize) -> isize {
-//     trace!(
-//         "kernel:pid[{}] sys_dup",
-//         current_task().unwrap().process.upgrade().unwrap().getpid()
-//     );
-//     let process = current_process();
-//     let mut inner = process.inner_exclusive_access();
-//     if fd >= inner.fd_table.len() {
-//         return -1;
-//     }
-//     if inner.fd_table[fd].is_none() {
-//         return -1;
-//     }
-//     let new_fd = inner.alloc_fd();
-//     inner.fd_table[new_fd] = Some(Arc::clone(inner.fd_table[fd].as_ref().unwrap()));
-//     new_fd as isize
-// }
-
-/// YOUR JOB: Implement fstat.
-pub fn sys_fstat(_fd: usize, _st: *mut Stat) -> isize {
+pub fn sys_dup(fd: usize) -> isize {
     trace!(
-        "kernel:pid[{}] sys_fstat NOT IMPLEMENTED",
+        "kernel:pid[{}] sys_dup",
         current_task().unwrap().process.upgrade().unwrap().getpid()
     );
-    -1
+    let process = current_process();
+    let inner = process.inner_exclusive_access();
+    let mut fd_table = inner.fd_table.lock();
+    let fd_file_descriptor = match fd_table.get_ref(fd) {
+        Ok(file_descriptor) => file_descriptor.clone(),
+        Err(errno) => return errno,
+    };
+    let nfd = match fd_table.insert(fd_file_descriptor) {
+        Ok(fd) => fd,
+        Err(errno) => return errno,
+    };
+    nfd as isize
+}
+
+/// YOUR JOB: Implement fstat.
+pub fn sys_fstat(fd: usize, buf: *mut u8) -> isize {
+    let token = current_user_token();
+    let process = current_process();
+    let inner = process.inner_exclusive_access();
+
+    let mut fd_table = inner.fd_table.lock();
+    let file_descriptor = match fd {
+        AT_FDCWD => inner.work_path.working_inode.as_ref().clone(),
+        fd => match fd_table.get_ref(fd) {
+            Ok(file_descriptor) => file_descriptor.clone(),
+            Err(errno) => return errno,
+        },
+    };
+
+    let mut user_buf = UserBuffer::new(translated_byte_buffer(
+        token,
+        buf,
+        core::mem::size_of::<Stat>(),
+    ));
+    user_buf.write(file_descriptor.get_stat().as_bytes());
+    SUCCESS
 }
 
 /// YOUR JOB: Implement linkat.
@@ -171,4 +187,80 @@ pub fn sys_unlinkat(_name: *const u8) -> isize {
         current_task().unwrap().process.upgrade().unwrap().getpid()
     );
     -1
+}
+
+pub fn sys_getcwd(buf: *mut u8, size: usize) -> isize {
+    let process = current_process();
+    let token = current_user_token();
+    if size == 0 {
+        //&& buf != 0
+        // The size argument is zero and buf is not a NULL pointer.
+        return EINVAL;
+    }
+    let working_dir = process
+        .inner_exclusive_access()
+        .work_path
+        .working_inode
+        .get_cwd()
+        .unwrap();
+    // println!("[sys_getcwd] cwd = {}",working_dir);
+    if working_dir.len() >= size {
+        // The size argument is less than the length of the absolute pathname of the working directory,
+        // including the terminating null byte.
+        return ERANGE;
+    }
+    let mut userbuf = UserBuffer::new(translated_byte_buffer(token, buf, size));
+    let ret = userbuf.write(working_dir.as_bytes());
+    if ret == 0 {
+        0
+    } else {
+        buf as isize
+    }
+}
+
+pub fn sys_chdir(path: *const u8) -> isize {
+    let task = current_task().unwrap();
+    let token = task.get_user_token();
+    let path = translated_str(token, path);
+    info!("[sys_chdir] path: {}", path);
+
+    let mut lock = task.fs.lock();
+
+    match lock.working_inode.cd(&path) {
+        Ok(new_working_inode) => {
+            lock.working_inode = new_working_inode;
+            SUCCESS
+        }
+        Err(errno) => errno,
+    }
+}
+
+pub fn sys_getdents64(fd: usize, buf: *mut u8, count: usize) -> isize {
+    let token = current_user_token();
+    let process = current_process();
+    let inner = process.inner_exclusive_access();
+    let mut fd_table = inner.fd_table.lock();
+
+    let file_descriptor = match fd {
+        AT_FDCWD => inner.work_path.working_inode.as_ref().clone(),
+        fd => match fd_table.get_ref(fd) {
+            Ok(file_descriptor) => file_descriptor.clone(),
+            Err(errno) => return errno,
+        },
+    };
+    let dirent_vec = match file_descriptor.get_dirent(count) {
+        Ok(vec) => vec,
+        Err(errno) => return errno,
+    };
+    let mut user_buf = UserBuffer::new(translated_byte_buffer(
+        token,
+        buf,
+        dirent_vec.len() * size_of::<Dirent>(),
+    ));
+    let buffer_index = dirent_vec.len().min(count / core::mem::size_of::<Dirent>());
+    for index in 0..buffer_index {
+        user_buf.write_at(size_of::<Dirent>() * index, dirent_vec[index].as_bytes());
+    }
+
+    (dirent_vec.len() * size_of::<Dirent>()) as isize
 }

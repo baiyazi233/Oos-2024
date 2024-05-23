@@ -7,9 +7,6 @@ docker:
 build_docker: 
 	docker build -t ${DOCKER_NAME} .
 
-fmt:
-	cd easy-fs; cargo fmt; cd ../easy-fs-fuse cargo fmt; cd ../kernel ; cargo fmt; cd ../user; cargo fmt; cd ..
-
 all:
 	@rm -rf os/.cargo
 	@cp -r os/cargo-submit os/.cargo

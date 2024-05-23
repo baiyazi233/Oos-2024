@@ -4,7 +4,7 @@ MODE := release
 KERNEL_ELF := target/$(TARGET)/$(MODE)/os
 KERNEL_BIN := $(KERNEL_ELF).bin
 DISASM_TMP := target/$(TARGET)/$(MODE)/asm
-# FS_IMG := ../user/target/$(TARGET)/$(MODE)/fs.img
+
 APPS := ../user/src/bin/*
 
 FAT32 := ../sdcard-riscv.img
@@ -45,24 +45,15 @@ apps:$(APPS)
 # TEST=$(TEST)
 
 # build fat32 for kernel
-fat32:
-	@cd ../user && make build TEST=$(TEST)
-	@cd ../os
-	@./buildfs.sh "$(U_FAT32_DIR)/fat32.img"
+# fat32:
+# 	@cd ../user && make build TEST=$(TEST)
+# 	@cd ../os
+# 	@./buildfs.sh "$(U_FAT32_DIR)/fat32.img"
 
-
-sdcard: fs-img
-	@echo "Are you sure write to $(SDCARD) ? [y/N] " && read ans && [ $${ans:-N} = y ]
-	@sudo dd if=/dev/zero of=$(SDCARD) bs=1048576 count=32
-	@sudo dd if=$(FS_IMG) of=$(SDCARD)
 
 $(KERNEL_BIN): kernel
 	@$(OBJCOPY) $(KERNEL_ELF) --strip-all -O binary $@
 
-fs-img: $(APPS)
-	@cd ../user && make build TEST=$(TEST)
-	@rm -f $(FS_IMG)
-	@cd ../easy-fs-fuse && cargo run --release -- -s ../user/src/bin/ -t ../user/target/riscv64gc-unknown-none-elf/release/
 
 $(APPS):
 

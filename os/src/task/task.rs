@@ -6,7 +6,11 @@ use crate::trap::TrapContext;
 use crate::{mm::PhysPageNum, sync::UPSafeCell};
 use alloc::sync::{Arc, Weak};
 use core::cell::RefMut;
-
+use crate::fs::{FileDescriptor,OpenFlags,ROOT_FD};
+use spin::Mutex;
+pub struct FsStatus {
+    pub working_inode: Arc<FileDescriptor>,
+}
 /// Task control block structure
 pub struct TaskControlBlock {
     /// immutable
@@ -15,6 +19,7 @@ pub struct TaskControlBlock {
     pub kstack: KernelStack,
     /// mutable
     inner: UPSafeCell<TaskControlBlockInner>,
+    pub fs: Arc<Mutex<FsStatus>>,
 }
 
 impl TaskControlBlock {
@@ -77,6 +82,13 @@ impl TaskControlBlock {
                     exit_code: None,
                 })
             },
+            fs: Arc::new(Mutex::new(FsStatus {
+                working_inode: Arc::new(
+                    ROOT_FD
+                        .open(".", OpenFlags::O_RDONLY | OpenFlags::O_DIRECTORY, true)
+                        .unwrap(),
+                ),
+            })),
         }
     }
 }

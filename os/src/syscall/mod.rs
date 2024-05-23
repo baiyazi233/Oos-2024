@@ -18,7 +18,7 @@ pub const SYSCALL_DUP3: usize = 24;
 pub const SYSCALL_CHDIR: usize = 49;
 pub const SYSCALL_OPENAT: usize = 56;
 pub const SYSCALL_CLOSE: usize = 57;
-pub const SYSCALL_GENDENTS64: usize = 61;
+pub const SYSCALL_GETDENTS64: usize = 61;
 pub const SYSCALL_READ: usize = 63;
 pub const SYSCALL_WRITE: usize = 64;
 pub const SYSCALL_LINKAT: usize = 37;
@@ -78,11 +78,10 @@ use crate::fs::Stat;
 /// handle syscall exception with `syscall_id` and other arguments
 pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
     match syscall_id {
-        SYSCALL_GETCWD => -1,
-        // SYSCALL_DUP => sys_dup(args[0]),
-        SYSCALL_DUP => -1,
+        SYSCALL_GETCWD => sys_getcwd(args[0] as *mut u8, args[1]),
+        SYSCALL_DUP => sys_dup(args[0]),
         SYSCALL_DUP3 => -1,
-        SYSCALL_CHDIR => -1,
+        SYSCALL_CHDIR => sys_chdir(args[0] as *const u8),
         SYSCALL_LINKAT => sys_linkat(args[1] as *const u8, args[3] as *const u8),
         SYSCALL_UNLINKAT => sys_unlinkat(args[1] as *const u8),
         SYSCALL_OPEN => sys_openat(AT_FDCWD, args[0] as *const u8, args[1] as u32, 0o777u32),
@@ -93,15 +92,14 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
             args[3] as u32,
         ),
         SYSCALL_CLOSE => sys_close(args[0]),
-        SYSCALL_GENDENTS64 => -1,
-        // SYSCALL_PIPE => sys_pipe(args[0] as *mut usize),
-        SYSCALL_PIPE => -1,
+        SYSCALL_GETDENTS64 => sys_getdents64(args[0], args[1] as *mut u8, args[2]),
+        //SYSCALL_PIPE => sys_pipe(args[0] as *mut usize),
         SYSCALL_MKDIRAT => -1,
         SYSCALL_UMOUNT2 => -1,
         SYSCALL_MOUNT => -1,
         SYSCALL_READ => sys_read(args[0], args[1] as *const u8, args[2]),
         SYSCALL_WRITE => sys_write(args[0], args[1] as *const u8, args[2]),
-        SYSCALL_FSTAT => sys_fstat(args[0], args[1] as *mut Stat),
+        SYSCALL_FSTAT => sys_fstat(args[0], args[1] as *mut u8),
         SYSCALL_EXIT => sys_exit(args[0] as i32),
         SYSCALL_SLEEP => sys_sleep(args[0] as *mut u64),
         SYSCALL_YIELD => sys_yield(),
