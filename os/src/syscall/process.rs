@@ -6,6 +6,7 @@ use crate::{
 };
 use alloc::{string::String, sync::Arc, vec::Vec};
 use crate::sbi::shutdown;
+use crate::timer::get_time_us;
 #[repr(C)]
 #[derive(Debug)]
 pub struct TimeVal {
@@ -68,11 +69,7 @@ pub fn sys_clone(
     new_pid as isize
 }
 /// fork child process syscall
-pub fn sys_fork() -> isize {
-    trace!(
-        "kernel:pid[{}] sys_fork",
-        current_task().unwrap().process.upgrade().unwrap().getpid()
-    );
+pub fn sys_fork(flags: usize, stack_ptr: usize, ptid: usize, tls: usize, ctid: usize) -> isize {
     let current_process = current_process();
     let new_process = current_process.fork();
     let new_pid = new_process.getpid();
@@ -82,6 +79,9 @@ pub fn sys_fork() -> isize {
     let trap_cx = task.inner_exclusive_access().get_trap_cx();
     // we do not have to move to next instruction since we have done it before
     // for child process, fork returns 0
+    if stack_ptr != 0 {
+        trap_cx.x[2] = stack_ptr;
+    }
     trap_cx.x[10] = 0;
     new_pid as isize
 }
@@ -193,6 +193,18 @@ pub fn sys_kill(pid: usize, signal: u32) -> isize {
     } else {
         -1
     }
+}
+
+pub fn sys_times(times: *mut usize) -> isize {
+    let token = current_user_token();
+    
+    let usec = get_time_us();
+    *translated_refmut(token, times) = usec;
+    *translated_refmut(token, unsafe { times.add(1) }) = usec;
+    *translated_refmut(token, unsafe { times.add(2) }) = usec;
+    *translated_refmut(token, unsafe { times.add(3) }) = usec;
+
+    usec as isize
 }
 
 /// get_time syscall

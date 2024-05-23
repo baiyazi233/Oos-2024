@@ -162,7 +162,7 @@ impl ProcessControlBlock {
                     semaphore_list: Vec::new(),
                     condvar_list: Vec::new(),
                     heap_base: ustack_base.into(),
-                    heap_end: entry_point.into(),
+                    heap_end: ustack_base.into(),
                 })
             },
         });
