@@ -71,6 +71,24 @@ impl MemorySet {
             None,
         );
     }
+    pub fn map_area(
+        &mut self,
+        start_addr: usize,
+        len: usize,
+        offset: usize,
+        context: Vec<u8>,
+    ) -> isize {
+        let mmap_end = VirtAddr::from(((start_addr + len) + PAGE_SIZE - 1) & (!(PAGE_SIZE - 1)));
+        let mmap_area = MapArea::new(
+            VirtAddr::from(start_addr),
+            mmap_end,
+            MapType::Framed,
+            MapPermission::R | MapPermission::W | MapPermission::U,
+        );
+        let subcontext = context[offset..(len + offset)].to_vec();
+        self.push(mmap_area, Some(subcontext.as_slice()));
+        0
+    }
     pub fn map_heap(&mut self, mut current_addr: VirtAddr, aim_addr: VirtAddr) -> isize {
         loop {
             if current_addr.0 > aim_addr.0 {

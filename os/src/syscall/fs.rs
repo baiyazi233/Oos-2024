@@ -1,10 +1,11 @@
 use crate::fs::*;
 use crate::mm::{translated_byte_buffer, translated_refmut, translated_str, UserBuffer};
 use crate::task::{current_process, current_task, current_user_token};
-use alloc::sync::Arc;
+
 use super::errno::*;
 use core::mem::size_of;
 pub const AT_FDCWD: usize = 100usize.wrapping_neg();
+pub const FD_LIMIT:usize = 128;
 /// write syscall
 pub fn sys_write(fd: usize, buf: *const u8, len: usize) -> isize {
     let token = current_user_token();
@@ -61,7 +62,7 @@ pub fn sys_openat(dirfd: usize, path: *const u8, flags: u32, mode: u32) -> isize
     let inner = process.inner_exclusive_access();
     let mut fd_table = inner.fd_table.lock();
     let file_descriptor = match dirfd {
-        AT_FDCWD => inner.work_path.working_inode.as_ref().clone(),
+        AT_FDCWD => inner.work_path.lock().working_inode.as_ref().clone(),
         fd => {
             match fd_table.get_ref(fd) {
                 Ok(file_descriptor) => file_descriptor.clone(),
@@ -109,24 +110,25 @@ pub fn sys_close(fd: usize) -> isize {
     }
 }
 /// pipe syscall
-// pub fn sys_pipe(pipe: *mut usize) -> isize {
-//     trace!(
-//         "kernel:pid[{}] sys_pipe",
-//         current_task().unwrap().process.upgrade().unwrap().getpid()
-//     );
-//     let process = current_process();
-//     let token = current_user_token();
-//     let mut inner = process.inner_exclusive_access();
-//     let mut fd_table = inner.fd_table.lock();
-//     let (pipe_read, pipe_write) = make_pipe();
-//     let read_fd = inner.alloc_fd();
-//     inner.fd_table[read_fd] = Some(pipe_read);
-//     let write_fd = inner.alloc_fd();
-//     inner.fd_table[write_fd] = Some(pipe_write);
-//     *translated_refmut(token, pipe) = read_fd;
-//     *translated_refmut(token, unsafe { pipe.add(1) }) = write_fd;
-//     0
-// }
+pub fn sys_pipe(pipe: *mut usize) -> isize {
+    trace!(
+        "kernel:pid[{}] sys_pipe",
+        current_task().unwrap().process.upgrade().unwrap().getpid()
+    );
+    // let process = current_process();
+    // let token = current_user_token();
+    // let mut inner = process.inner_exclusive_access();
+    // let mut fd_table = inner.fd_table.lock();
+    // let (pipe_read, pipe_write) = make_pipe();
+    // let read_fd = inner.alloc_fd();
+    // inner.fd_table[read_fd] = Some(pipe_read);
+    // let write_fd = inner.alloc_fd();
+    // inner.fd_table[write_fd] = Some(pipe_write);
+    // *translated_refmut(token, pipe) = read_fd;
+    // *translated_refmut(token, unsafe { pipe.add(1) }) = write_fd;
+    0
+}
+
 /// dup syscall
 pub fn sys_dup(fd: usize) -> isize {
     trace!(
@@ -147,6 +149,41 @@ pub fn sys_dup(fd: usize) -> isize {
     nfd as isize
 }
 
+pub fn sys_dup2(oldfd: usize, newfd: usize) -> isize {
+    // tip!("[sys_dup3] old_fd = {}, new_fd = {}", oldfd, newfd);
+    if oldfd == newfd {
+        return EINVAL;
+    }
+    let process = current_process();
+    let inner = process.inner_exclusive_access();
+    let mut fd_table = inner.fd_table.lock();
+
+    let mut file_descriptor = match fd_table.get_ref(oldfd) {
+        Ok(file_descriptor) => file_descriptor.clone(),
+        Err(errno) => return errno,
+    };
+    file_descriptor.set_cloexec(false); //is_cloexec
+    match fd_table.insert_at(file_descriptor, newfd) {
+        Ok(fd) => fd as isize,
+        Err(errno) => errno,
+    }
+}
+// pub fn sys_dup3(oldfd: usize, newfd: usize) -> isize {
+//     // tip!("[sys_dup3] old_fd = {}, new_fd = {}", oldfd, newfd);
+//     let process = current_process();
+//     let inner = process.inner_exclusive_access();
+//     let mut fd_table = inner.fd_table.lock();
+
+//     let mut file_descriptor = match fd_table.get_ref(oldfd) {
+//         Ok(file_descriptor) => file_descriptor.clone(),
+//         Err(errno) => return errno,
+//     };
+//     file_descriptor.set_cloexec(false); //is_cloexec
+//     match fd_table.insert_at(file_descriptor, newfd) {
+//         Ok(fd) => fd as isize,
+//         Err(errno) => errno,
+//     }
+// }
 /// YOUR JOB: Implement fstat.
 pub fn sys_fstat(fd: usize, buf: *mut u8) -> isize {
     let token = current_user_token();
@@ -155,7 +192,7 @@ pub fn sys_fstat(fd: usize, buf: *mut u8) -> isize {
 
     let mut fd_table = inner.fd_table.lock();
     let file_descriptor = match fd {
-        AT_FDCWD => inner.work_path.working_inode.as_ref().clone(),
+        AT_FDCWD => inner.work_path.lock().working_inode.as_ref().clone(),
         fd => match fd_table.get_ref(fd) {
             Ok(file_descriptor) => file_descriptor.clone(),
             Err(errno) => return errno,
@@ -181,12 +218,42 @@ pub fn sys_linkat(_old_name: *const u8, _new_name: *const u8) -> isize {
 }
 
 /// YOUR JOB: Implement unlinkat.
-pub fn sys_unlinkat(_name: *const u8) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_unlinkat NOT IMPLEMENTED",
-        current_task().unwrap().process.upgrade().unwrap().getpid()
+pub fn sys_unlinkat(dirfd: usize, path: *const u8, flags: u32) -> isize {
+    let token = current_user_token();
+    let process = current_process();
+    let inner = process.inner_exclusive_access();
+    let mut fd_table = inner.fd_table.lock();
+    let path = translated_str(token, path);
+    let flags = match UnlinkatFlags::from_bits(flags) {
+        Some(flags) => flags,
+        None => {
+            warn!("[sys_unlinkat] unknown flags");
+            return EINVAL;
+        }
+    };
+    info!(
+        "[sys_unlinkat] dirfd: {}, path: {}, flags: {:?}",
+        dirfd as isize, path, flags
     );
-    -1
+
+    let file_descriptor = match dirfd {
+        // AT_FDCWD => task.fs.lock().working_inode.as_ref().clone(),
+        AT_FDCWD => inner.work_path.lock().working_inode.as_ref().clone(),
+        fd => match fd_table.get_ref(fd) {
+            Ok(file_descriptor) => file_descriptor.clone(),
+            Err(errno) => return errno,
+        },
+    };
+    match file_descriptor.delete(&path, flags.contains(UnlinkatFlags::AT_REMOVEDIR)) {
+        Ok(_) => SUCCESS,
+        Err(errno) => errno,
+    }
+}
+
+bitflags! {
+    pub struct UnlinkatFlags: u32 {
+        const AT_REMOVEDIR = 0x200;
+    }
 }
 
 pub fn sys_getcwd(buf: *mut u8, size: usize) -> isize {
@@ -200,6 +267,7 @@ pub fn sys_getcwd(buf: *mut u8, size: usize) -> isize {
     let working_dir = process
         .inner_exclusive_access()
         .work_path
+        .lock()
         .working_inode
         .get_cwd()
         .unwrap();
@@ -218,17 +286,16 @@ pub fn sys_getcwd(buf: *mut u8, size: usize) -> isize {
     }
 }
 
+
 pub fn sys_chdir(path: *const u8) -> isize {
-    let task = current_task().unwrap();
-    let token = task.get_user_token();
+    let token = current_user_token();
+    let process = current_process();
+    let inner = process.inner_exclusive_access();
+    let mut work_path = inner.work_path.lock();
     let path = translated_str(token, path);
-    info!("[sys_chdir] path: {}", path);
-
-    let mut lock = task.fs.lock();
-
-    match lock.working_inode.cd(&path) {
+    match work_path.working_inode.cd(&path) {
         Ok(new_working_inode) => {
-            lock.working_inode = new_working_inode;
+            work_path.working_inode = new_working_inode;
             SUCCESS
         }
         Err(errno) => errno,
@@ -242,7 +309,7 @@ pub fn sys_getdents64(fd: usize, buf: *mut u8, count: usize) -> isize {
     let mut fd_table = inner.fd_table.lock();
 
     let file_descriptor = match fd {
-        AT_FDCWD => inner.work_path.working_inode.as_ref().clone(),
+        AT_FDCWD => inner.work_path.lock().working_inode.as_ref().clone(),
         fd => match fd_table.get_ref(fd) {
             Ok(file_descriptor) => file_descriptor.clone(),
             Err(errno) => return errno,
@@ -263,4 +330,114 @@ pub fn sys_getdents64(fd: usize, buf: *mut u8, count: usize) -> isize {
     }
 
     (dirent_vec.len() * size_of::<Dirent>()) as isize
+}
+
+pub fn sys_mount(
+    source: *const u8,
+    target: *const u8,
+    filesystemtype: *const u8,
+    mountflags: usize,
+    data: *const u8,
+) -> isize {
+    if source.is_null() || target.is_null() || filesystemtype.is_null() {
+        return EINVAL;
+    }
+    let token = current_user_token();
+    let source = translated_str(token, source);
+    let target = translated_str(token, target);
+    let filesystemtype = translated_str(token, filesystemtype);
+    // infallible
+    let mountflags = MountFlags::from_bits(mountflags).unwrap();
+    info!(
+        "[sys_mount] source: {}, target: {}, filesystemtype: {}, mountflags: {:?}, data: {:?}",
+        source, target, filesystemtype, mountflags, data
+    );
+    warn!("[sys_mount] fake implementation!");
+    SUCCESS
+}
+
+pub fn sys_umount2(target: *const u8, flags: u32) -> isize {
+    if target.is_null() {
+        return EINVAL;
+    }
+    let token = current_user_token();
+    let target = translated_str(token, target);
+    let flags = match UmountFlags::from_bits(flags) {
+        Some(flags) => flags,
+        None => return EINVAL,
+    };
+    info!("[sys_umount2] target: {}, flags: {:?}", target, flags);
+    warn!("[sys_umount2] fake implementation!");
+    SUCCESS
+}
+
+bitflags! {
+    pub struct MountFlags: usize {
+        const MS_RDONLY         =   1;
+        const MS_NOSUID         =   2;
+        const MS_NODEV          =   4;
+        const MS_NOEXEC         =   8;
+        const MS_SYNCHRONOUS    =   16;
+        const MS_REMOUNT        =   32;
+        const MS_MANDLOCK       =   64;
+        const MS_DIRSYNC        =   128;
+        const MS_NOATIME        =   1024;
+        const MS_NODIRATIME     =   2048;
+        const MS_BIND           =   4096;
+        const MS_MOVE           =   8192;
+        const MS_REC            =   16384;
+        const MS_SILENT         =   32768;
+        const MS_POSIXACL       =   (1<<16);
+        const MS_UNBINDABLE     =   (1<<17);
+        const MS_PRIVATE        =   (1<<18);
+        const MS_SLAVE          =   (1<<19);
+        const MS_SHARED         =   (1<<20);
+        const MS_RELATIME       =   (1<<21);
+        const MS_KERNMOUNT      =   (1<<22);
+        const MS_I_VERSION      =   (1<<23);
+        const MS_STRICTATIME    =   (1<<24);
+        const MS_LAZYTIME       =   (1<<25);
+        const MS_NOREMOTELOCK   =   (1<<27);
+        const MS_NOSEC          =   (1<<28);
+        const MS_BORN           =   (1<<29);
+        const MS_ACTIVE         =   (1<<30);
+        const MS_NOUSER         =   (1<<31);
+    }
+}
+
+bitflags! {
+    pub struct UmountFlags: u32 {
+        const MNT_FORCE           =   1;
+        const MNT_DETACH          =   2;
+        const MNT_EXPIRE          =   4;
+        const UMOUNT_NOFOLLOW     =   8;
+    }
+}
+
+pub fn sys_mkdirat(dirfd: usize, path: *const u8, mode: u32) -> isize {
+    // let task = current_task().unwrap();
+    let token = current_user_token();
+    let process = current_process();
+    let inner = process.inner_exclusive_access();
+    let path = translated_str(token, path);
+    info!(
+        "[sys_mkdirat] dirfd: {}, path: {}, mode: {:?}",
+        dirfd as isize,
+        path,
+        StatMode::from_bits(mode)
+    );
+    let file_descriptor = match dirfd {
+        AT_FDCWD => inner.work_path.lock().working_inode.as_ref().clone(),
+        fd => {
+            let fd_table = inner.fd_table.lock();
+            match fd_table.get_ref(fd) {
+                Ok(file_descriptor) => file_descriptor.clone(),
+                Err(errno) => return errno,
+            }
+        }
+    };
+    match file_descriptor.mkdir(&path) {
+        Ok(_) => SUCCESS,
+        Err(errno) => errno,
+    }
 }

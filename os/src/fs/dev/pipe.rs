@@ -4,149 +4,149 @@
 // use crate::fs::DiskInodeType;
 // use crate::fs::StatMode;
 // use crate::syscall::errno::*;
-// use crate::syscall::fs::Fcntl_Command;
+// //use crate::syscall::fs::Fcntl_Command;
 // use crate::task::{current_task, suspend_current_and_run_next};
 // use crate::{fs::file_trait::File, mm::UserBuffer};
-// use alloc::boxed::Box;
-// use alloc::sync::{Arc, Weak};
+use alloc::boxed::Box;
+use alloc::sync::{Arc, Weak};
 // use alloc::vec::Vec;
 // use num_enum::FromPrimitive;
-// use spin::Mutex;
-// use core::ptr::copy_nonoverlapping;
+use spin::Mutex;
+use core::ptr::copy_nonoverlapping;
 
-// pub struct Pipe {
-//     readable: bool,
-//     writable: bool,
-//     buffer: Arc<Mutex<PipeRingBuffer>>,
-// }
+pub struct Pipe {
+    readable: bool,
+    writable: bool,
+    buffer: Arc<Mutex<PipeRingBuffer>>,
+}
 
-// impl Pipe {
-//     pub fn read_end_with_buffer(buffer: Arc<Mutex<PipeRingBuffer>>) -> Self {
-//         Self {
-//             readable: true,
-//             writable: false,
-//             buffer,
-//         }
-//     }
-//     pub fn write_end_with_buffer(buffer: Arc<Mutex<PipeRingBuffer>>) -> Self {
-//         Self {
-//             readable: false,
-//             writable: true,
-//             buffer,
-//         }
-//     }
-// }
+impl Pipe {
+    pub fn read_end_with_buffer(buffer: Arc<Mutex<PipeRingBuffer>>) -> Self {
+        Self {
+            readable: true,
+            writable: false,
+            buffer,
+        }
+    }
+    pub fn write_end_with_buffer(buffer: Arc<Mutex<PipeRingBuffer>>) -> Self {
+        Self {
+            readable: false,
+            writable: true,
+            buffer,
+        }
+    }
+}
 
-// #[cfg(feature = "board_fu740")]
-// const RING_DEFAULT_BUFFER_SIZE: usize = 4096 * 16;
-// #[cfg(not(feature = "board_fu740"))]
-// const RING_DEFAULT_BUFFER_SIZE: usize = 256;
+#[cfg(feature = "board_fu740")]
+const RING_DEFAULT_BUFFER_SIZE: usize = 4096 * 16;
+#[cfg(not(feature = "board_fu740"))]
+const RING_DEFAULT_BUFFER_SIZE: usize = 256;
 
-// #[derive(Copy, Clone, PartialEq, Debug)]
-// enum RingBufferStatus {
-//     FULL,
-//     EMPTY,
-//     NORMAL,
-// }
+#[derive(Copy, Clone, PartialEq, Debug)]
+enum RingBufferStatus {
+    FULL,
+    EMPTY,
+    NORMAL,
+}
 
-// pub struct PipeRingBuffer {
-//     arr: Box<[u8; RING_DEFAULT_BUFFER_SIZE]>,
-//     head: usize,
-//     tail: usize,
-//     status: RingBufferStatus,
-//     write_end: Option<Weak<Pipe>>,
-//     read_end: Option<Weak<Pipe>>,
-// }
+pub struct PipeRingBuffer {
+    arr: Box<[u8; RING_DEFAULT_BUFFER_SIZE]>,
+    head: usize,
+    tail: usize,
+    status: RingBufferStatus,
+    write_end: Option<Weak<Pipe>>,
+    read_end: Option<Weak<Pipe>>,
+}
 
-// impl PipeRingBuffer {
-//     fn new() -> Self {
-//         // let mut vec = Vec::<u8>::with_capacity(RING_DEFAULT_BUFFER_SIZE);
-//         // unsafe {
-//         //     vec.set_len(RING_DEFAULT_BUFFER_SIZE);
-//         // }
-//         Self {
-//             arr: Box::new([0u8; RING_DEFAULT_BUFFER_SIZE]),
-//             head: 0,
-//             tail: 0,
-//             status: RingBufferStatus::EMPTY,
-//             write_end: None,
-//             read_end: None,
-//         }
-//     }
-//     fn get_used_size(&self) -> usize {
-//         if self.status == RingBufferStatus::FULL {
-//             self.arr.len()
-//         } else if self.status == RingBufferStatus::EMPTY {
-//             0
-//         } else {
-//             assert!(self.head != self.tail);
-//             if self.head < self.tail {
-//                 self.tail - self.head
-//             } else {
-//                 self.tail + self.arr.len() - self.head
-//             }
-//         }
-//     }
-//     #[inline]
-//     fn buffer_read(&mut self, buf: &mut [u8]) -> usize {
-//         // get range
-//         let begin = self.head;
-//         let end = if self.tail <= self.head {
-//             RING_DEFAULT_BUFFER_SIZE
-//         } else {
-//             self.tail
-//         };
-//         // copy
-//         let read_bytes = buf.len().min(end - begin);
-//         unsafe {
-//             copy_nonoverlapping(self.arr.as_ptr().add(begin), buf.as_mut_ptr(), read_bytes);
-//         };
-//         // update head
-//         self.head = if begin + read_bytes == RING_DEFAULT_BUFFER_SIZE { 0 } else { begin + read_bytes };
-//         read_bytes
-//     }
-//     #[inline]
-//     fn buffer_write(&mut self, buf: &[u8]) -> usize {
-//         // get range
-//         let begin = self.tail;
-//         let end = if self.tail < self.head {
-//             self.head
-//         } else {
-//             RING_DEFAULT_BUFFER_SIZE
-//         };
-//         // write
-//         let write_bytes = buf.len().min(end - begin);
-//         unsafe {
-//             copy_nonoverlapping(buf.as_ptr(), self.arr.as_mut_ptr().add(begin), write_bytes);
-//         };
-//         // update tail
-//         self.tail = if begin + write_bytes == RING_DEFAULT_BUFFER_SIZE { 0 } else { begin + write_bytes };
-//         write_bytes
-//     }
-//     fn set_write_end(&mut self, write_end: &Arc<Pipe>) {
-//         self.write_end = Some(Arc::downgrade(write_end));
-//     }
-//     fn set_read_end(&mut self, read_end: &Arc<Pipe>) {
-//         self.read_end = Some(Arc::downgrade(read_end));
-//     }
-//     fn all_write_ends_closed(&self) -> bool {
-//         self.write_end.as_ref().unwrap().upgrade().is_none()
-//     }
-//     fn all_read_ends_closed(&self) -> bool {
-//         self.read_end.as_ref().unwrap().upgrade().is_none()
-//     }
-// }
+impl PipeRingBuffer {
+    fn new() -> Self {
+        // let mut vec = Vec::<u8>::with_capacity(RING_DEFAULT_BUFFER_SIZE);
+        // unsafe {
+        //     vec.set_len(RING_DEFAULT_BUFFER_SIZE);
+        // }
+        Self {
+            arr: Box::new([0u8; RING_DEFAULT_BUFFER_SIZE]),
+            head: 0,
+            tail: 0,
+            status: RingBufferStatus::EMPTY,
+            write_end: None,
+            read_end: None,
+        }
+    }
+    fn get_used_size(&self) -> usize {
+        if self.status == RingBufferStatus::FULL {
+            self.arr.len()
+        } else if self.status == RingBufferStatus::EMPTY {
+            0
+        } else {
+            assert!(self.head != self.tail);
+            if self.head < self.tail {
+                self.tail - self.head
+            } else {
+                self.tail + self.arr.len() - self.head
+            }
+        }
+    }
+    #[inline]
+    fn buffer_read(&mut self, buf: &mut [u8]) -> usize {
+        // get range
+        let begin = self.head;
+        let end = if self.tail <= self.head {
+            RING_DEFAULT_BUFFER_SIZE
+        } else {
+            self.tail
+        };
+        // copy
+        let read_bytes = buf.len().min(end - begin);
+        unsafe {
+            copy_nonoverlapping(self.arr.as_ptr().add(begin), buf.as_mut_ptr(), read_bytes);
+        };
+        // update head
+        self.head = if begin + read_bytes == RING_DEFAULT_BUFFER_SIZE { 0 } else { begin + read_bytes };
+        read_bytes
+    }
+    #[inline]
+    fn buffer_write(&mut self, buf: &[u8]) -> usize {
+        // get range
+        let begin = self.tail;
+        let end = if self.tail < self.head {
+            self.head
+        } else {
+            RING_DEFAULT_BUFFER_SIZE
+        };
+        // write
+        let write_bytes = buf.len().min(end - begin);
+        unsafe {
+            copy_nonoverlapping(buf.as_ptr(), self.arr.as_mut_ptr().add(begin), write_bytes);
+        };
+        // update tail
+        self.tail = if begin + write_bytes == RING_DEFAULT_BUFFER_SIZE { 0 } else { begin + write_bytes };
+        write_bytes
+    }
+    fn set_write_end(&mut self, write_end: &Arc<Pipe>) {
+        self.write_end = Some(Arc::downgrade(write_end));
+    }
+    fn set_read_end(&mut self, read_end: &Arc<Pipe>) {
+        self.read_end = Some(Arc::downgrade(read_end));
+    }
+    fn all_write_ends_closed(&self) -> bool {
+        self.write_end.as_ref().unwrap().upgrade().is_none()
+    }
+    fn all_read_ends_closed(&self) -> bool {
+        self.read_end.as_ref().unwrap().upgrade().is_none()
+    }
+}
 
-// /// Return (read_end, write_end)
-// pub fn make_pipe() -> (Arc<Pipe>, Arc<Pipe>) {
-//     let buffer = Arc::new(Mutex::new(PipeRingBuffer::new()));
-//     // buffer仅剩两个强引用，这样读写端关闭后就会被释放
-//     let read_end = Arc::new(Pipe::read_end_with_buffer(buffer.clone()));
-//     let write_end = Arc::new(Pipe::write_end_with_buffer(buffer.clone()));
-//     buffer.lock().set_write_end(&write_end);
-//     buffer.lock().set_read_end(&read_end);
-//     (read_end, write_end)
-// }
+/// Return (read_end, write_end)
+pub fn make_pipe() -> (Arc<Pipe>, Arc<Pipe>) {
+    let buffer = Arc::new(Mutex::new(PipeRingBuffer::new()));
+    // buffer仅剩两个强引用，这样读写端关闭后就会被释放
+    let read_end = Arc::new(Pipe::read_end_with_buffer(buffer.clone()));
+    let write_end = Arc::new(Pipe::write_end_with_buffer(buffer.clone()));
+    buffer.lock().set_write_end(&write_end);
+    buffer.lock().set_read_end(&read_end);
+    (read_end, write_end)
+}
 
 // #[allow(unused)]
 // impl File for Pipe {
@@ -440,43 +440,43 @@
 //         }
 //     }
 
-//     fn fcntl(&self, cmd: u32, arg: u32) -> isize {
-//         // match Fcntl_Command::from_primitive(cmd) {
-//         //     Fcntl_Command::GETPIPE_SZ => self.buffer.lock().arr.len() as isize,
-//         //     Fcntl_Command::SETPIPE_SZ => {
-//         //         let new_size = (arg as usize).max(PAGE_SIZE);
-//         //         let mut ring = self.buffer.lock();
-//         //         let mut old_used_size = ring.get_used_size();
-//         //         if new_size < old_used_size {
-//         //             return EBUSY;
-//         //         }
-//         //         let mut new_buffer = Vec::<u8>::with_capacity(new_size);
-//         //         while old_used_size > 0 {
-//         //             let index = ring.head;
-//         //             new_buffer.push(ring.arr[index]);
-//         //             ring.head += 1;
-//         //             if ring.head == ring.arr.len() {
-//         //                 ring.head = 0;
-//         //             }
-//         //             old_used_size -= 1;
-//         //         }
-//         //         ring.head = 0;
-//         //         ring.tail = new_buffer.len();
-//         //         if ring.tail == 0 {
-//         //             ring.status = RingBufferStatus::EMPTY;
-//         //         } else if ring.tail != new_size {
-//         //             ring.status = RingBufferStatus::NORMAL;
-//         //         } else {
-//         //             ring.status = RingBufferStatus::FULL;
-//         //         }
-//         //         unsafe {
-//         //             new_buffer.set_len(new_size);
-//         //         }
-//         //         ring.arr = new_buffer;
-//         //         SUCCESS
-//         //     }
-//         //     _ => EINVAL,
-//         // }
+    //fn fcntl(&self, cmd: u32, arg: u32) -> isize {
+        // match Fcntl_Command::from_primitive(cmd) {
+        //     Fcntl_Command::GETPIPE_SZ => self.buffer.lock().arr.len() as isize,
+        //     Fcntl_Command::SETPIPE_SZ => {
+        //         let new_size = (arg as usize).max(PAGE_SIZE);
+        //         let mut ring = self.buffer.lock();
+        //         let mut old_used_size = ring.get_used_size();
+        //         if new_size < old_used_size {
+        //             return EBUSY;
+        //         }
+        //         let mut new_buffer = Vec::<u8>::with_capacity(new_size);
+        //         while old_used_size > 0 {
+        //             let index = ring.head;
+        //             new_buffer.push(ring.arr[index]);
+        //             ring.head += 1;
+        //             if ring.head == ring.arr.len() {
+        //                 ring.head = 0;
+        //             }
+        //             old_used_size -= 1;
+        //         }
+        //         ring.head = 0;
+        //         ring.tail = new_buffer.len();
+        //         if ring.tail == 0 {
+        //             ring.status = RingBufferStatus::EMPTY;
+        //         } else if ring.tail != new_size {
+        //             ring.status = RingBufferStatus::NORMAL;
+        //         } else {
+        //             ring.status = RingBufferStatus::FULL;
+        //         }
+        //         unsafe {
+        //             new_buffer.set_len(new_size);
+        //         }
+        //         ring.arr = new_buffer;
+        //         SUCCESS
+        //     }
+        //     _ => EINVAL,
+        // }
 //         todo!()
 //     }
 // }

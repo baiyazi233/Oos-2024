@@ -4,6 +4,7 @@ use crate::{
         current_process, current_task, current_user_token, exit_current_and_run_next, pid2process, suspend_current_and_run_next, CloneFlags, SignalFlags, TaskStatus, CSIGNAL
     }
 };
+use crate::mm::{translated_byte_buffer, UserBuffer};
 use alloc::{string::String, sync::Arc, vec::Vec};
 use crate::sbi::shutdown;
 use crate::timer::{get_time_us, get_time_ms};
@@ -119,6 +120,7 @@ pub fn sys_exec(path: *const u8, mut args: *const usize, mut envp: *const usize)
     let working_inode = process
         .inner_exclusive_access()
         .work_path
+        .lock()
         .working_inode
         .clone();
     match working_inode.open(&path, OpenFlags::O_RDONLY, false) {
@@ -254,13 +256,12 @@ pub fn sys_mmap(
     fd: usize,
     offset: usize,
 ) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_mmap NOT IMPLEMENTED",
-        current_task().unwrap().process.upgrade().unwrap().getpid()
-    );
+    if start as isize == -1 || len == 0 {
+        return -1;
+    }
     let process = current_process();
     let mut inner = process.inner_exclusive_access();
-    inner.add_maparea(start, len)
+    inner.add_maparea(start, len, prot, flags, fd, offset)
 }
 
 /// munmap syscall
@@ -271,41 +272,61 @@ pub fn sys_munmap(_start: usize, _len: usize) -> isize {
         "kernel:pid[{}] sys_munmap NOT IMPLEMENTED",
         current_task().unwrap().process.upgrade().unwrap().getpid()
     );
-    -1
-}
-
-/// change data segment size
-// pub fn sys_sbrk(size: i32) -> isize {
-//     trace!("kernel:pid[{}] sys_sbrk", current_task().unwrap().process.upgrade().unwrap().getpid());
-//     if let Some(old_brk) = current_task().unwrap().change_program_brk(size) {
-//         old_brk as isize
-//     } else {
-//     -1
-// }
-
-/// spawn syscall
-/// YOUR JOB: Implement spawn.
-/// HINT: fork + exec =/= spawn
-pub fn sys_spawn(_path: *const u8) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_spawn NOT IMPLEMENTED",
-        current_task().unwrap().process.upgrade().unwrap().getpid()
-    );
-    -1
-}
-
-/// set priority syscall
-///
-/// YOUR JOB: Set task priority
-pub fn sys_set_priority(_prio: isize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_set_priority NOT IMPLEMENTED",
-        current_task().unwrap().process.upgrade().unwrap().getpid()
-    );
-    -1
+    0
 }
 
 pub fn sys_shutdown(failure: bool) -> isize {
     shutdown();
     0
+}
+
+pub fn sys_uname(buf: *mut u8) -> isize {
+    let token = current_user_token();
+    let mut user_buf = UserBuffer::new(translated_byte_buffer(
+        token,
+        buf,
+        core::mem::size_of::<Utsname>(),
+    ));
+    let write_size = user_buf.write(Utsname::new().as_bytes());
+    match write_size {
+        0 => -1,
+        _ => 0,
+    }
+}
+
+struct Utsname {
+    sysname: [u8; 65],
+    nodename: [u8; 65],
+    release: [u8; 65],
+    version: [u8; 65],
+    machine: [u8; 65],
+    domainname: [u8; 65],
+}
+
+impl Utsname {
+    pub fn new() -> Self {
+        Self {
+            sysname: Utsname::str2array("Linux"),
+            nodename: Utsname::str2array("DESKTOP"),
+            release: Utsname::str2array("5.10.0-7-riscv64"),
+            version: Utsname::str2array("#1 SMP Debian 5.10.40-1 "),
+            machine: Utsname::str2array("riscv"),
+            domainname: Utsname::str2array(""),
+        }
+    }
+    
+    fn str2array(str: &str) -> [u8; 65] {
+        let bytes = str.as_bytes();
+        let len = bytes.len();
+        let mut ret = [0u8; 65];
+        let copy_part = &mut ret[..len];
+        copy_part.copy_from_slice(bytes);
+        ret
+    }
+    
+    // For easier memory writing
+    pub fn as_bytes(&self) -> &[u8] {
+        let size = core::mem::size_of::<Self>();
+        unsafe { core::slice::from_raw_parts(self as *const Self as *const u8, size) }
+    }
 }

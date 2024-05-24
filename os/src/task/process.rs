@@ -21,6 +21,7 @@ pub struct ProcessControlBlock {
     pub pid: PidHandle,
     /// mutable
     inner: UPSafeCell<ProcessControlBlockInner>,
+    
 }
 
 #[derive(Clone)]
@@ -42,7 +43,7 @@ pub struct ProcessControlBlockInner {
     /// file descriptor table
     pub fd_table: Arc<MutexSpin<FdTable>>,
     /// 
-    pub work_path: Arc<FsStatus>,
+    pub work_path: Arc<MutexSpin<FsStatus>>,
     /// signal flags
     pub signals: SignalFlags,
     /// tasks(also known as threads)
@@ -57,6 +58,7 @@ pub struct ProcessControlBlockInner {
     pub condvar_list: Vec<Option<Arc<Condvar>>>,
     pub heap_base: VirtAddr,
     pub heap_end: VirtAddr,
+    pub current_path: String,
 }
 
 impl ProcessControlBlockInner {
@@ -92,17 +94,16 @@ impl ProcessControlBlockInner {
     }
 
     /// 添加一个逻辑段到应用地址空间
-    pub fn add_maparea(&mut self, start: usize, len: usize) -> isize{
-        let start_va = VirtAddr::from(start);
-        let end_va = VirtAddr::from(start + len);
-        let permission = MapPermission::R | MapPermission::W | MapPermission::X | MapPermission::U;
-        if self.check_maparea(start_va, end_va) {
-            return -1;
-        }
-        else {
-            self.memory_set.insert_framed_area(start_va, end_va, permission);
-            return 0;   
-        }
+    pub fn add_maparea(&mut self, start: usize, len: usize, prot: usize, flags: usize, fd: usize, offset: usize) -> isize{
+        let file_descriptor = match self.fd_table.lock().get_ref(fd) {
+            Ok(file_descriptor) => file_descriptor.clone(),
+            Err(errno) => return errno,
+        };
+        let context = file_descriptor.read_all();
+        // only support one time mmap becasue we doesn't save mmap_area_end
+        // start_addr euqal to MMAP_BASE
+        // todo: add a value called mmap_area_end to support multiple mmap
+        self.memory_set.map_area(start, len, offset, context)
     }
     /// 删除应用地址空间的一个逻辑段
     pub fn remove_maparea(&mut self, start_va: VirtAddr, end_va: VirtAddr) -> isize {
@@ -148,13 +149,13 @@ impl ProcessControlBlock {
                         vec.push(stderr);
                         vec
                     }))),
-                    work_path: Arc::new(FsStatus {
+                    work_path: Arc::new(MutexSpin::new(FsStatus {
                         working_inode: Arc::new(
                             ROOT_FD
                                 .open(".", OpenFlags::O_RDONLY | OpenFlags::O_DIRECTORY, true)
                                 .unwrap(),
                         ),
-                    }),
+                    })),
                     signals: SignalFlags::empty(),
                     tasks: Vec::new(),
                     task_res_allocator: RecycleAllocator::new(),
@@ -163,6 +164,7 @@ impl ProcessControlBlock {
                     condvar_list: Vec::new(),
                     heap_base: ustack_base.into(),
                     heap_end: ustack_base.into(),
+                    current_path: String::from("/"),
                 })
             },
         });
@@ -284,13 +286,13 @@ impl ProcessControlBlock {
                     children: Vec::new(),
                     exit_code: 0,
                     fd_table: new_fd_table,
-                    work_path: Arc::new(FsStatus {
+                    work_path: Arc::new(MutexSpin::new(FsStatus {
                         working_inode: Arc::new(
                             ROOT_FD
                                 .open(".", OpenFlags::O_RDONLY | OpenFlags::O_DIRECTORY, true)
                                 .unwrap(),
                         ),
-                    }),
+                    })),
                     signals: SignalFlags::empty(),
                     tasks: Vec::new(),
                     task_res_allocator: RecycleAllocator::new(),
@@ -299,6 +301,7 @@ impl ProcessControlBlock {
                     condvar_list: Vec::new(),
                     heap_base: parent.heap_base,
                     heap_end: parent.heap_base,
+                    current_path: parent.current_path.clone(),
                 })
             },
         });

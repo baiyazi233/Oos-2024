@@ -449,4 +449,14 @@ impl FdTable {
         self.inner.clear();
         self.recycled.clear();
     }
+
+    pub fn get_fd(&self, fd: usize) -> Result<&FileDescriptor, isize> {
+        if fd >= self.inner.len() {
+            return Err(EBADF);
+        }
+        match &self.inner[fd] {
+            Some(file_descriptor) => Ok(file_descriptor),
+            None => Err(EBADF),
+        }
+    }
 }
