@@ -5,24 +5,31 @@ use crate::task::{current_process, current_task, current_user_token};
 use super::errno::*;
 use core::mem::size_of;
 pub const AT_FDCWD: usize = 100usize.wrapping_neg();
-pub const FD_LIMIT:usize = 128;
+
 /// write syscall
 pub fn sys_write(fd: usize, buf: *const u8, len: usize) -> isize {
+    // log!("[sys_write] write_fd = {}, count = {:#x}.", fd, len);
     let token = current_user_token();
     let process = current_process();
     let inner = process.inner_exclusive_access();
     let fd_table = inner.fd_table.lock();
     let file_descriptor = match fd_table.get_ref(fd) {
-        Ok(file_descriptor) => file_descriptor,
+        Ok(file_descriptor) => file_descriptor.clone(),
         Err(errno) => return errno,
     };
     if !file_descriptor.writable() {
         return EBADF;
     }
-    file_descriptor.write_user(
+    // release current task TCB manually to avoid multi-borrow
+    // yield will happend while pipe reading, which will cause multi-borrow
+    drop(fd_table);
+    drop(inner);
+    drop(process);
+    let write_size = file_descriptor.write_user(
         None,
         UserBuffer::new(translated_byte_buffer(token, buf, len)),
-    ) as isize
+    );
+    write_size as isize
 }
 /// read syscall
 pub fn sys_read(fd: usize, buf: *const u8, len: usize) -> isize {
@@ -31,12 +38,15 @@ pub fn sys_read(fd: usize, buf: *const u8, len: usize) -> isize {
     let inner = process.inner_exclusive_access();
     let fd_table = inner.fd_table.lock();
     let file_descriptor = match fd_table.get_ref(fd) {
-        Ok(file_descriptor) => file_descriptor,
+        Ok(file_descriptor) => file_descriptor.clone(),
         Err(errno) => return errno,
     };
     if !file_descriptor.readable() {
         return EBADF;
     }
+    drop(fd_table);
+    drop(inner);
+    drop(process);
     file_descriptor.read_user(
         None,
         UserBuffer::new(translated_byte_buffer(token, buf, len)),
@@ -110,22 +120,25 @@ pub fn sys_close(fd: usize) -> isize {
     }
 }
 /// pipe syscall
-pub fn sys_pipe(pipe: *mut usize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_pipe",
-        current_task().unwrap().process.upgrade().unwrap().getpid()
-    );
-    // let process = current_process();
-    // let token = current_user_token();
-    // let mut inner = process.inner_exclusive_access();
-    // let mut fd_table = inner.fd_table.lock();
-    // let (pipe_read, pipe_write) = make_pipe();
-    // let read_fd = inner.alloc_fd();
-    // inner.fd_table[read_fd] = Some(pipe_read);
-    // let write_fd = inner.alloc_fd();
-    // inner.fd_table[write_fd] = Some(pipe_write);
-    // *translated_refmut(token, pipe) = read_fd;
-    // *translated_refmut(token, unsafe { pipe.add(1) }) = write_fd;
+pub fn sys_pipe(pipe: *mut u32) -> isize {
+    let token = current_user_token();
+    let process = current_process();
+    let inner = process.inner_exclusive_access();
+    let mut fd_table = inner.fd_table.lock();
+
+    // return tuples of pipe
+    let (pipe_read, pipe_write) = make_pipe();
+    // add pipe into file table
+    let read_fd = match fd_table.insert(FileDescriptor::new(false, false, pipe_read)) {
+        Ok(fd) => fd,
+        Err(errno) => return errno,
+    };
+    let write_fd = match fd_table.insert(FileDescriptor::new(false, false, pipe_write)) {
+        Ok(fd) => fd,
+        Err(errno) => return errno,
+    };
+    *translated_refmut(token, pipe) = read_fd as u32;
+    *translated_refmut(token, unsafe { pipe.add(1) }) = write_fd as u32;
     0
 }
 
@@ -151,9 +164,9 @@ pub fn sys_dup(fd: usize) -> isize {
 
 pub fn sys_dup2(oldfd: usize, newfd: usize) -> isize {
     // tip!("[sys_dup3] old_fd = {}, new_fd = {}", oldfd, newfd);
-    if oldfd == newfd {
-        return EINVAL;
-    }
+    // if oldfd == newfd {
+    //     return EINVAL;
+    // }
     let process = current_process();
     let inner = process.inner_exclusive_access();
     let mut fd_table = inner.fd_table.lock();

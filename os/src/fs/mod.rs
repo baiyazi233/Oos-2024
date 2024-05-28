@@ -9,7 +9,7 @@ mod layout;
 pub mod swap;
 
 // pub use self::dev::{hwclock::*, null::*, pipe::*, socket::*, tty::*, zero::*};
-pub use self::dev::{hwclock::*, null::*, socket::*, zero::*};
+pub use self::dev::{hwclock::*, null::*, socket::*, zero::*, pipe::*};
 use core::{
     slice::{Iter, IterMut},
 };
@@ -49,6 +49,7 @@ pub struct FileDescriptor {
     nonblock: bool,
     pub file: Arc<dyn File>,
 }
+
 #[allow(unused)]
 impl FileDescriptor {
     pub fn new(cloexec: bool, nonblock: bool, file: Arc<dyn File>) -> Self {
@@ -271,7 +272,7 @@ pub struct FdTable {
 
 #[allow(unused)]
 impl FdTable {
-    pub const DEFAULT_FD_LIMIT: usize = 64;
+    pub const DEFAULT_FD_LIMIT: usize = 128;
     pub const SYSTEM_FD_LIMIT: usize = SYSTEM_FD_LIMIT;
     pub fn new(inner: Vec<Option<FileDescriptor>>) -> Self {
         Self {
@@ -392,6 +393,7 @@ impl FdTable {
             Ok(pos)
         } else {
             if pos >= self.soft_limit {
+                //println!("{},{}",pos,self.soft_limit);
                 return Err(EMFILE);
             } else {
                 (current..pos).rev().for_each(|fd| self.recycled.push(fd as u8));

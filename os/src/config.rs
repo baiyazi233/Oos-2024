@@ -24,3 +24,4 @@ pub const TRAP_CONTEXT_BASE: usize = TRAMPOLINE - PAGE_SIZE;
 pub use crate::board::{CLOCK_FREQ, MMIO};
 /// the max length of a file path
 pub const SYSTEM_FD_LIMIT: usize = 256;
+pub const MMAP_BASE: usize = 0x4000_0000;

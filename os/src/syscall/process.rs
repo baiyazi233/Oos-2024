@@ -1,6 +1,9 @@
 use crate::{
-    config::{MAX_SYSCALL_NUM, PAGE_SIZE,}, 
-    fs::{FileDescriptor, OpenFlags}, mm::{translated_ref, translated_refmut, translated_str}, syscall::process, task::{
+    config::{MAX_SYSCALL_NUM, PAGE_SIZE, MMAP_BASE,}, 
+    fs::{FileDescriptor, OpenFlags}, 
+    mm::{translated_ref, translated_refmut, translated_str}, 
+    syscall::process, 
+    task::{
         current_process, current_task, current_user_token, exit_current_and_run_next, pid2process, suspend_current_and_run_next, CloneFlags, SignalFlags, TaskStatus, CSIGNAL
     }
 };
@@ -29,7 +32,7 @@ pub struct TaskInfo {
 ///
 /// exit the current task and run the next task in task list
 pub fn sys_exit(exit_code: i32) -> ! {
-    exit_current_and_run_next(exit_code);
+    exit_current_and_run_next((exit_code & 0xff) << 8);
     panic!("Unreachable in sys_exit!");
 }
 /// yield syscall
@@ -256,12 +259,13 @@ pub fn sys_mmap(
     fd: usize,
     offset: usize,
 ) -> isize {
-    if start as isize == -1 || len == 0 {
+    if start as isize == -1 {
         return -1;
     }
     let process = current_process();
     let mut inner = process.inner_exclusive_access();
-    inner.add_maparea(start, len, prot, flags, fd, offset)
+    inner.add_maparea(MMAP_BASE, len, offset, fd);
+    MMAP_BASE as isize
 }
 
 /// munmap syscall

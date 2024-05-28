@@ -10,7 +10,7 @@ use user_lib::{exec, fork, shutdown, waitpid};
 
 #[no_mangle]
 fn main() -> i32 {
-    let tasks = [
+    let tasks = [ 
         "close\0",
         "execve\0",  
         "fstat\0",     
@@ -37,14 +37,12 @@ fn main() -> i32 {
         "munmap\0",
         "dup2\0",
         "wait\0",  
-
         "waitpid\0",
         "clone\0",     
         "fork\0",  
         "exit\0",  
-           
-        "yield\0",  
-        "pipe\0",  
+        "yield\0",
+        "pipe\0",   
     ];
     // If you want to test locally, add the following commented out paths
     let mut path = String::from("/"); //  bin/riscv-syscalls-testing/

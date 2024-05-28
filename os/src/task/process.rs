@@ -94,7 +94,7 @@ impl ProcessControlBlockInner {
     }
 
     /// 添加一个逻辑段到应用地址空间
-    pub fn add_maparea(&mut self, start: usize, len: usize, prot: usize, flags: usize, fd: usize, offset: usize) -> isize{
+    pub fn add_maparea(&mut self, start_addr: usize, len: usize, offset: usize, fd: usize) -> isize {
         let file_descriptor = match self.fd_table.lock().get_ref(fd) {
             Ok(file_descriptor) => file_descriptor.clone(),
             Err(errno) => return errno,
@@ -103,7 +103,7 @@ impl ProcessControlBlockInner {
         // only support one time mmap becasue we doesn't save mmap_area_end
         // start_addr euqal to MMAP_BASE
         // todo: add a value called mmap_area_end to support multiple mmap
-        self.memory_set.map_area(start, len, offset, context)
+        self.memory_set.map_area(start_addr, len, offset, context)
     }
     /// 删除应用地址空间的一个逻辑段
     pub fn remove_maparea(&mut self, start_va: VirtAddr, end_va: VirtAddr) -> isize {
